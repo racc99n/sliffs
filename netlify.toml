@@ -1,3 +1,55 @@
+# netlify.toml
 [build]
-  command = "yarn && yarn build"
-  publish = "dist"
+  publish = "public"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "18"
+
+# API Routes
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+# LIFF Apps
+[[redirects]]
+  from = "/liff-registration"
+  to = "/liff-registration.html"
+  status = 200
+
+[[redirects]]
+  from = "/liff-member-card" 
+  to = "/liff-member-card.html"
+  status = 200
+
+[[redirects]]
+  from = "/liff-history"
+  to = "/liff-history.html"
+  status = 200
+
+[[redirects]]
+  from = "/admin"
+  to = "/admin-dashboard.html"
+  status = 200
+
+# SPA fallback
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Headers for LIFF Apps
+[[headers]]
+  for = "/liff-*"
+  [headers.values]
+    X-Frame-Options = "ALLOWALL"
+    Content-Security-Policy = "frame-ancestors 'self' https://*.line.me https://*.line-apps.com https://*.line-cdn.net"
+
+# CORS headers for API
+[[headers]]
+  for = "/.netlify/functions/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"
+    Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
