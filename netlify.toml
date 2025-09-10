@@ -1,3 +1,1 @@
-[build]
-  command = "yarn && yarn build"
-  publish = "dist"
+[build] publish = "./" [[headers]] for = "/*" [headers.values] X-Frame-Options = "SAMEORIGIN" Content-Security-Policy = "frame-ancestors 'self' https://*.line.me https://*.line-apps.com" [[redirects]] from = "/*" to = "/index.html" status = 200
