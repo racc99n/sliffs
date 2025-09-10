@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>เชื่อมโยงบัญชี Member Card</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #00C300, #00B900);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+        
+        .header {
+            background: linear-gradient(45deg, #00C300, #00B900);
+            color: white;
+            padding: 30px 20px;
+            text-align: center;
+        }
+        
+        .profile-pic {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            border: 4px solid white;
+            margin-bottom: 15px;
+            object-fit: cover;
+        }
+        
+        .user-name {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .content {
+            padding: 30px 20px;
+        }
+        
+        .link-section {
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        .username-display {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 12px;
+            border: 2px solid #00C300;
+            margin: 20px 0;
+            text-align: center;
+        }
+        
+        .username-label {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+        
+        .username-value {
+            font-size: 20px;
+            font-weight: bold;
+            color: #00C300;
+            font-family: monospace;
+        }
+        
+        .link-info {
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #ffc107;
+            margin: 20px 0;
+        }
+        
+        .link-info h4 {
+            color: #856404;
+            margin-bottom: 8px;
+        }
+        
+        .link-info p {
+            color: #856404;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 10px 0;
+            text-align: center;
+            text-decoration: none;
+            display: block;
+        }
+        
+        .btn-primary {
+            background: #00C300;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #00B900;
+            transform: translateY(-1px);
+        }
+        
+        .btn-secondary {
+            background: #f8f9fa;
+            color: #333;
+            border: 2px solid #dee2e6;
+        }
+        
+        .btn-secondary:hover {
+            background: #e9ecef;
+        }
+        
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+        }
+        
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #00C300;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .success-animation {
+            text-align: center;
+            padding: 40px 20px;
+        }
+        
+        .success-icon {
+            width: 100px;
+            height: 100px;
+            background: #28a745;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 50px;
+            color: white;
+            margin-bottom: 20px;
+            animation: bounceIn 0.6s ease;
+        }
+        
+        @keyframes bounceIn {
+            0% { transform: scale(0); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-weight: 500;
+        }
+        
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .features-list {
+            margin: 20px 0;
+        }
+        
+        .feature-item {
+            display: flex;
+            align-items: center;
+            margin: 12px 0;
+            font-size: 14px;
+        }
+        
+        .feature-icon {
+            width: 20px;
+            height: 20px;
+            margin-right: 12px;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Loading Screen -->
+        <div id="loadingScreen" class="loading">
+            <div class="spinner"></div>
+            <p>กำลังตรวจสอบข้อมูล...</p>
+        </div>
+        
+        <!-- Account Linking Screen -->
+        <div id="linkingScreen" style="display: none;">
+            <div class="header">
+                <img id="profilePic" src="https://via.placeholder.com/80" alt="Profile" class="profile-pic">
+                <div class="user-name" id="displayName">ผู้ใช้งาน</div>
+                <div style="background: rgba(255,255,255,0.2); padding: 5px 15px; border-radius: 20px; font-size: 12px; display: inline-block;">
+                    🔗 เชื่อมโยงบัญชี
+                </div>
+            </div>
+            
+            <div class="content">
+                <div class="link-info">
+                    <h4>📱 เชื่อมโยงบัญชี Prima789</h4>
+                    <p>เชื่อมโยงบัญชี LINE ของคุณกับบัญชี Prima789 เพื่อใช้งาน Member Card และรับคะแนนสะสมอัตโนมัติ</p>
+                </div>
+                
+                <div class="username-display">
+                    <div class="username-label">Username ที่ต้องการเชื่อมโยง</div>
+                    <div class="username-value" id="webUsername">loading...</div>
+                </div>
+                
+                <div class="features-list">
+                    <div class="feature-item">
+                        <span class="feature-icon">💎</span>
+                        <span>รับคะแนนสะสม 1% ทุกการฝากเงิน</span>
+                    </div>
+                    <div class="feature-item">
+                        <span class="feature-icon">🔄</span>
+                        <span>ซิงค์ข้อมูลการฝาก-ถอนอัตโนมัติ</span>
+                    </div>
+                    <div class="feature-item">
+                        <span class="feature-icon">🎁</span>
+                        <span>แลกรับโบนัสและของรางวัล</span>
+                    </div>
+                    <div class="feature-item">
+                        <span class="feature-icon">📊</span>
+                        <span>ติดตามสถิติการเล่นแบบ Real-time</span>
+                    </div>
+                </div>
+                
+                <button class="btn btn-primary" id="linkBtn" onclick="confirmLinking()">
+                    🔗 ยืนยันการเชื่อมโยง
+                </button>
+                
+                <button class="btn btn-secondary" onclick="closeApp()">
+                    ❌ ยกเลิก
+                </button>
+                
+                <div id="alertContainer"></div>
+            </div>
+        </div>
+        
+        <!-- Success Screen -->
+        <div id="successScreen" style="display: none;">
+            <div class="success-animation">
+                <div class="success-icon">✅</div>
+                <h3>เชื่อมโยงสำเร็จ!</h3>
+                <p>บัญชี LINE และ Prima789 ได้เชื่อมโยงกันแล้ว</p>
+            </div>
+            
+            <div class="content">
+                <div class="username-display">
+                    <div class="username-label">บัญชีที่เชื่อมโยงแล้ว</div>
+                    <div class="username-value" id="linkedUsername">username</div>
+                </div>
+                
+                <button class="btn btn-primary" onclick="openMemberCard()">
+                    💎 เปิด Member Card
+                </button>
+                
+                <button class="btn btn-secondary" onclick="closeApp()">
+                    ✅ เสร็จสิ้น
+                </button>
+            </div>
+        </div>
+        
+        <!-- Error Screen -->
+        <div id="errorScreen" style="display: none;">
+            <div class="header">
+                <div style="width: 80px; height: 80px; background: #dc3545; border-radius: 50%; margin: 0 auto 15px; display: flex; align-items: center; justify-content: center; font-size: 40px;">
+                    ❌
+                </div>
+                <div class="user-name">เกิดข้อผิดพลาด</div>
+            </div>
+            
+            <div class="content">
+                <div class="alert alert-error" id="errorMessage">
+                    ไม่สามารถเชื่อมโยงบัญชีได้ในขณะนี้
+                </div>
+                
+                <button class="btn btn-primary" onclick="initializeLIFF()">
+                    🔄 ลองใหม่
+                </button>
+                
+                <button class="btn btn-secondary" onclick="closeApp()">
+                    ปิดหน้าต่าง
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- LIFF SDK -->
+    <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    
+    <script>
+        // Configuration
+        const LIFF_ID = 'YOUR_LIFF_ID'; // LIFF ID สำหรับ Account Linking
+        const API_BASE_URL = 'https://sliffs.netlify.app/.netlify/functions';
+        
+        let liffProfile = null;
+        let webUsername = null;
+        
+        // Initialize LIFF
+        async function initializeLIFF() {
+            try {
+                showScreen('loadingScreen');
+                
+                await liff.init({ liffId: LIFF_ID });
+                
+                if (!liff.isLoggedIn()) {
+                    liff.login();
+                    return;
+                }
+                
+                liffProfile = await liff.getProfile();
+                
+                // ดึง username จาก URL parameters หรือ browser storage
+                webUsername = getWebUsername();
+                
+                if (!webUsername) {
+                    showError('ไม่พบข้อมูล Username ที่ต้องการเชื่อมโยง');
+                    return;
+                }
+                
+                // เช็คว่าเชื่อมโยงแล้วหรือยัง
+                const linkingStatus = await checkLinkingStatus();
+                
+                if (linkingStatus.isLinked) {
+                    showSuccess(linkingStatus.username);
+                } else {
+                    showLinkingScreen();
+                }
+                
+            } catch (error) {
+                console.error('LIFF initialization failed:', error);
+                showError('เกิดข้อผิดพลาดในการเชื่อมต่อ LINE');
+            }
+        }
+        
+        function getWebUsername() {
+            // วิธีที่ 1: จาก URL parameters
+            const urlParams = new URLSearchParams(window.location.search);
+            let username = urlParams.get('username');
+            
+            if (username) {
+                // เก็บไว้ใน session storage สำหรับการใช้งานถัดไป
+                sessionStorage.setItem('webUsername', username);
+                return username;
+            }
+            
+            // วิธีที่ 2: จาก session storage
+            username = sessionStorage.getItem('webUsername');
+            if (username) {
+                return username;
+            }
+            
+            // วิธีที่ 3: จาก local storage (backup)
+            username = localStorage.getItem('lastWebUsername');
+            if (username) {
+                return username;
+            }
+            
+            return null;
+        }
+        
+        async function checkLinkingStatus() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/check-account-linking?lineUserId=${liffProfile.userId}&username=${webUsername}`);
+                const result = await response.json();
+                
+                return {
+                    isLinked: result.success && result.isLinked,
+                    username: result.username
+                };
+            } catch (error) {
+                console.error('Error checking linking status:', error);
+                return { isLinked: false };
+            }
+        }
+        
+        function showLinkingScreen() {
+            showScreen('linkingScreen');
+            
+            // Update profile display
+            if (liffProfile) {
+                document.getElementById('displayName').textContent = liffProfile.displayName;
+                if (liffProfile.pictureUrl) {
+                    document.getElementById('profilePic').src = liffProfile.pictureUrl;
+                }
+            }
+            
+            // Show username to link
+            document.getElementById('webUsername').textContent = webUsername;
+        }
+        
+        async function confirmLinking() {
+            const btn = document.getElementById('linkBtn');
+            btn.disabled = true;
+            btn.textContent = 'กำลังเชื่อมโยง...';
+            
+            try {
+                const linkingData = {
+                    lineUserId: liffProfile.userId,
+                    displayName: liffProfile.displayName,
+                    pictureUrl: liffProfile.pictureUrl || '',
+                    webUsername: webUsername,
+                    timestamp: new Date().toISOString()
+                };
+                
+                const response = await fetch(`${API_BASE_URL}/link-account`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(linkingData)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    // เก็บข้อมูลการเชื่อมโยงสำเร็จ
+                    localStorage.setItem('linkedUsername', webUsername);
+                    localStorage.setItem('linkingDate', new Date().toISOString());
+                    
+                    showSuccess(webUsername);
+                    
+                    // ส่งข้อมูลกลับไปยังหน้าเว็บหลัก (ถ้าเปิดจาก popup)
+                    if (window.opener) {
+                        window.opener.postMessage({
+                            type: 'ACCOUNT_LINKED',
+                            username: webUsername,
+                            lineUserId: liffProfile.userId
+                        }, '*');
+                    }
+                    
+                } else {
+                    showAlert(result.message || 'เกิดข้อผิดพลาดในการเชื่อมโยง', 'error');
+                }
+                
+            } catch (error) {
+                console.error('Linking error:', error);
+                showAlert('เกิดข้อผิดพลาดในการเชื่อมโยงบัญชี', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '🔗 ยืนยันการเชื่อมโยง';
+            }
+        }
+        
+        function showSuccess(username) {
+            showScreen('successScreen');
+            document.getElementById('linkedUsername').textContent = username;
+        }
+        
+        function showError(message) {
+            showScreen('errorScreen');
+            document.getElementById('errorMessage').textContent = message;
+        }
+        
+        function showScreen(screenId) {
+            // ซ่อนทุก screen
+            document.querySelectorAll('[id$="Screen"]').forEach(screen => {
+                screen.style.display = 'none';
+            });
+            
+            // แสดง screen ที่ต้องการ
+            document.getElementById(screenId).style.display = 'block';
+        }
+        
+        function openMemberCard() {
+            if (liff.isInClient()) {
+                liff.openWindow({
+                    url: 'https://sliffs.netlify.app/liff-member-card',
+                    external: false
+                });
+            } else {
+                window.open('https://sliffs.netlify.app/liff-member-card', '_blank');
+            }
+        }
+        
+        function closeApp() {
+            if (liff.isInClient()) {
+                liff.closeWindow();
+            } else {
+                window.close();
+            }
+        }
+        
+        function showAlert(message, type) {
+            const container = document.getElementById('alertContainer');
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type}`;
+            alertDiv.textContent = message;
+            
+            container.innerHTML = '';
+            container.appendChild(alertDiv);
+            
+            setTimeout(() => {
+                if (container.contains(alertDiv)) {
+                    container.removeChild(alertDiv);
+                }
+            }, 5000);
+        }
+        
+        // Initialize when page loads
+        window.addEventListener('load', initializeLIFF);
+    </script>
+</body>
+</html>
