@@ -34,7 +34,7 @@ const richMenuData = {
       },
       action: {
         type: 'uri',
-        uri: 'https://sliffs.netlify.app/liff-member-card',
+        uri: 'https://prima168.cc/liff-member-card',
       },
     },
     {
