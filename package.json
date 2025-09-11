@@ -4,13 +4,13 @@
   "private": true,
   "repository": {
     "type": "git",
-    "url": "https://github.com/line/liff-playground"
+    "url": "https://github.com/racc99n/sliffs"
   },
   "version": "3.0.1",
   "scripts": {
     "dev": "vite",
     "dev:https": "HTTPS=true vite",
-    "build": "tsc && vite build",
+    "build": "yarn add typescript --dev",
     "preview": "vite preview",
     "lint": "eslint \"src/**/*.{ts,tsx}\""
   },
