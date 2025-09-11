@@ -1,3 +1,72 @@
 [build]
+  # Build command - just ensure public directory exists
+  command = "echo 'Using static files from public directory'"
+  
+  # Directory to publish (static files)
   publish = "public"
+  
+  # Functions directory
   functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "18"
+
+[dev]
+  # Local development port
+  port = 8888
+  
+  # Functions port for local dev
+  functionsPort = 9999
+  
+  # Auto-open browser
+  autoLaunch = false
+
+# Functions settings - ใช้ syntax ที่ถูกต้อง
+[functions."*"]
+  node_version = "18"
+  external_node_modules = ["pg", "canvas", "node-fetch"]
+
+# Headers for security
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# CORS headers for API functions
+[[headers]]
+  for = "/.netlify/functions/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Headers = "Content-Type, Authorization, X-API-Key"
+    Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
+
+# Redirects
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/member-card"
+  to = "/liff-member-card.html"
+  status = 200
+
+[[redirects]]
+  from = "/account-linking"
+  to = "/liff-account-linking.html"
+  status = 200
+
+# Root redirect
+[[redirects]]
+  from = "/"
+  to = "/index.html"
+  status = 200
+
+# 404 fallback
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 404
