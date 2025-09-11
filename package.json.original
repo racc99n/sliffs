@@ -22,16 +22,14 @@
     "xtend": "^4.0.2"
   },
   "scripts": {
-    "build": "echo 'Static files ready in public directory'",
+    "build": "echo 'Build completed - Static files ready'",
     "dev": "netlify dev",
     "start": "netlify dev",
     "deploy": "netlify deploy --prod",
     "deploy:dev": "netlify deploy",
     "test": "echo \"Tests not implemented yet\" && exit 0",
     "check-env": "netlify env:list",
-    "health": "curl ${NETLIFY_URL:-http://localhost:8888}/.netlify/functions/health-check",
-    "clean": "rm -rf dist node_modules/.cache",
-    "setup": "chmod +x env-setup.sh && ./env-setup.sh"
+    "health": "curl ${NETLIFY_URL:-http://localhost:8888}/.netlify/functions/health-check"
   },
   "keywords": [
     "line",
@@ -51,6 +49,6 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/racc99n/sliffs.git"
+    "url": "https://github.com/yourusername/sliffs.git"
   }
 }

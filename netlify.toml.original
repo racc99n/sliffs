@@ -1,6 +1,6 @@
 [build]
-  # Build command - just ensure public directory exists
-  command = "echo 'Using static files from public directory'"
+  # Build command
+  command = "npm run build"
   
   # Directory to publish (static files)
   publish = "public"
