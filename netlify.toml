@@ -1,5 +1,28 @@
-# netlify.toml
 [build]
-  command = "yarn && yarn build"
-  publish = "dist"
-  
+  functions = "netlify/functions"
+  publish = "public"
+
+[dev]
+  functions = "netlify/functions"
+  publish = "public"
+  port = 8888
+
+[functions]
+  node_bundler = "esbuild"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+
+[[headers]]
+  for = "/liff-*"
+  [headers.values]
+    X-Frame-Options = "ALLOWALL"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
