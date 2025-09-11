@@ -1,155 +1,266 @@
-import pkg from 'pg'
-const { Pool } = pkg
+const { Pool } = require('pg')
 
-// CORS Headers
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-}
+exports.handler = async (event, context) => {
+  console.log('🔍 Check Account Linking - Start')
+  console.log('HTTP Method:', event.httpMethod)
+  console.log('Query params:', event.queryStringParameters)
 
-export const handler = async (event, context) => {
   // Handle CORS
   if (event.httpMethod === 'OPTIONS') {
     return {
       statusCode: 200,
-      headers: corsHeaders,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      },
       body: '',
     }
   }
 
-  try {
-    const { lineUserId } = event.queryStringParameters || {}
+  if (event.httpMethod !== 'GET') {
+    return {
+      statusCode: 405,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: 'Method not allowed' }),
+    }
+  }
 
-    if (!lineUserId) {
+  let pool
+  let client
+
+  try {
+    const { lineUserId, username } = event.queryStringParameters || {}
+
+    if (!lineUserId && !username) {
       return {
         statusCode: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           success: false,
-          message: 'lineUserId is required',
+          error: 'Missing required parameter',
+          message: 'Please provide either lineUserId or username',
         }),
       }
     }
 
-    // Database connection
-    const pool = new Pool({
-      connectionString: process.env.NETLIFY_DATABASE_URL,
+    console.log('🔗 Checking account linking for:', { lineUserId, username })
+
+    // Database connection with debug
+    const connectionString = process.env.NETLIFY_DATABASE_URL
+    if (!connectionString) {
+      console.error('❌ Database URL not found in environment variables')
+      return {
+        statusCode: 500,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          success: false,
+          error: 'Database configuration error',
+          message: 'Database connection string not configured',
+        }),
+      }
+    }
+
+    console.log('🗄️ Connecting to database...')
+    console.log(
+      'Connection string prefix:',
+      connectionString.substring(0, 30) + '...'
+    )
+
+    pool = new Pool({
+      connectionString: connectionString,
       ssl: { rejectUnauthorized: false },
+      connectionTimeoutMillis: 10000,
+      idleTimeoutMillis: 30000,
     })
 
-    const client = await pool.connect()
+    client = await pool.connect()
+    console.log('✅ Database connected successfully')
 
-    try {
-      // ตรวจสอบว่า LINE User ID นี้ได้ลิงก์กับบัญชี Prima789 แล้วหรือไม่
-      const query = `
-                SELECT 
-                    la.line_user_id,
-                    la.prima789_username,
-                    la.prima789_user_id,
-                    la.linked_at,
-                    la.last_sync_at,
-                    la.sync_status,
-                    -- ข้อมูลจาก Prima789
-                    pd.username,
-                    pd.balance,
-                    pd.points,
-                    pd.tier,
-                    pd.last_login,
-                    pd.created_at,
-                    pd.updated_at
-                FROM line_accounts la
-                LEFT JOIN prima789_data pd ON la.prima789_user_id = pd.user_id
-                WHERE la.line_user_id = $1 
-                AND la.status = 'active'
-                ORDER BY la.linked_at DESC
-                LIMIT 1
-            `
+    // Test database connection
+    const testResult = await client.query('SELECT NOW() as current_time')
+    console.log('🕐 Database time:', testResult.rows[0].current_time)
 
-      const result = await client.query(query, [lineUserId])
+    // Check if tables exist
+    const tableCheckResult = await client.query(`
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+            AND table_name IN ('line_accounts', 'transaction_logs')
+        `)
 
-      if (result.rows.length === 0) {
-        // Account not linked
-        return {
-          statusCode: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            success: true,
-            isLinked: false,
-            data: null,
-            message: 'Account not linked',
-          }),
-        }
-      }
+    const existingTables = tableCheckResult.rows.map((row) => row.table_name)
+    console.log('📊 Existing tables:', existingTables)
 
-      const accountData = result.rows[0]
-
-      // Check if Prima789 data exists
-      if (!accountData.username) {
-        // Linked but no data sync yet
-        return {
-          statusCode: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            success: true,
-            isLinked: true,
-            needsSync: true,
-            data: {
-              lineUserId: accountData.line_user_id,
-              prima789Username: accountData.prima789_username,
-              linkedAt: accountData.linked_at,
-              syncStatus: accountData.sync_status,
-            },
-            message: 'Account linked but data needs sync',
-          }),
-        }
-      }
-
-      // Account linked and has data
+    if (!existingTables.includes('line_accounts')) {
+      console.error('❌ Table line_accounts does not exist')
       return {
-        statusCode: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        statusCode: 500,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          success: true,
-          isLinked: true,
-          needsSync: false,
-          data: {
-            lineUserId: accountData.line_user_id,
-            prima789Username: accountData.prima789_username,
-            prima789UserId: accountData.prima789_user_id,
-            linkedAt: accountData.linked_at,
-            lastSyncAt: accountData.last_sync_at,
-            syncStatus: accountData.sync_status,
-
-            // Member data
-            username: accountData.username,
-            balance: parseFloat(accountData.balance) || 0,
-            points: parseInt(accountData.points) || 0,
-            tier: accountData.tier || 'Bronze',
-            lastLogin: accountData.last_login,
-            created_at: accountData.created_at,
-            updated_at: accountData.updated_at,
+          success: false,
+          error: 'Database schema error',
+          message:
+            'Required tables not found. Please run database schema first.',
+          details: {
+            existing_tables: existingTables,
+            required_tables: ['line_accounts', 'transaction_logs'],
           },
-          message: 'Account linked and data available',
         }),
       }
-    } finally {
-      client.release()
-      await pool.end()
+    }
+
+    // Query user data
+    let query, params
+    if (lineUserId) {
+      query = `
+                SELECT 
+                    line_user_id,
+                    prima789_user_id,
+                    username,
+                    display_name,
+                    balance,
+                    points,
+                    tier,
+                    status,
+                    linked_at,
+                    last_sync_at,
+                    updated_at
+                FROM line_accounts 
+                WHERE line_user_id = $1 AND status = 'active'
+            `
+      params = [lineUserId]
+    } else {
+      query = `
+                SELECT 
+                    line_user_id,
+                    prima789_user_id,
+                    username,
+                    display_name,
+                    balance,
+                    points,
+                    tier,
+                    status,
+                    linked_at,
+                    last_sync_at,
+                    updated_at
+                FROM line_accounts 
+                WHERE username = $1 AND status = 'active'
+            `
+      params = [username]
+    }
+
+    console.log('🔍 Executing query:', query)
+    console.log('📝 Query params:', params)
+
+    const result = await client.query(query, params)
+    console.log('📊 Query result rows:', result.rows.length)
+
+    if (result.rows.length === 0) {
+      console.log('❌ No linked account found')
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          success: true,
+          isLinked: false,
+          data: null,
+          message: 'Account not linked',
+        }),
+      }
+    }
+
+    const userData = result.rows[0]
+    console.log('✅ Account found:', {
+      lineUserId: userData.line_user_id,
+      username: userData.username,
+      balance: userData.balance,
+    })
+
+    // Get recent transactions
+    const transactionsResult = await client.query(
+      `
+            SELECT 
+                transaction_type,
+                amount,
+                balance_before,
+                balance_after,
+                details,
+                timestamp,
+                created_at
+            FROM transaction_logs 
+            WHERE prima789_user_id = $1 
+            ORDER BY timestamp DESC 
+            LIMIT 10
+        `,
+      [userData.prima789_user_id]
+    )
+
+    console.log('📈 Recent transactions:', transactionsResult.rows.length)
+
+    return {
+      statusCode: 200,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        success: true,
+        isLinked: true,
+        data: {
+          ...userData,
+          recent_transactions: transactionsResult.rows,
+        },
+        message: 'Account linked successfully',
+        debug_info: {
+          query_type: lineUserId ? 'by_line_user_id' : 'by_username',
+          database_time: testResult.rows[0].current_time,
+          existing_tables: existingTables,
+        },
+      }),
     }
   } catch (error) {
-    console.error('Account linking check error:', error)
+    console.error('❌ Database error:', error)
+    console.error('Error details:', {
+      message: error.message,
+      code: error.code,
+      detail: error.detail,
+      hint: error.hint,
+      position: error.position,
+    })
 
     return {
       statusCode: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         success: false,
         error: 'Database error',
         message: 'Failed to check account linking status',
         details:
-          process.env.NODE_ENV === 'development' ? error.message : undefined,
+          process.env.NODE_ENV === 'development'
+            ? {
+                error_message: error.message,
+                error_code: error.code,
+                error_detail: error.detail,
+              }
+            : 'Contact support for assistance',
       }),
+    }
+  } finally {
+    // Clean up connections
+    if (client) {
+      try {
+        client.release()
+        console.log('🔄 Database client released')
+      } catch (releaseError) {
+        console.error('Error releasing client:', releaseError)
+      }
+    }
+
+    if (pool) {
+      try {
+        await pool.end()
+        console.log('🔄 Database pool closed')
+      } catch (poolError) {
+        console.error('Error closing pool:', poolError)
+      }
     }
   }
 }
