@@ -495,30 +495,145 @@
         let memberData = null;
         let refreshInterval = null;
         
-        // Initialize LIFF
-        document.addEventListener('DOMContentLoaded', async () => {
-            try {
-                const liffId = '2008090006-ZV6r9v5J'; // Replace with actual LIFF ID
-                await liff.init({ liffId: liffId });
+        // LIFF Configuration
+        const LIFF_CONFIG = {
+            MEMBER_CARD_ID: '2008090006-ZV6r9v5J', // Replace with your actual LIFF ID
+            MAX_RETRY_ATTEMPTS: 3,
+            RETRY_DELAY: 2000
+        };
+        
+        // Wait for LIFF SDK to load
+        function waitForLIFF(retryCount = 0) {
+            return new Promise((resolve, reject) => {
+                if (typeof window.liff !== 'undefined') {
+                    resolve(window.liff);
+                    return;
+                }
                 
+                if (retryCount >= LIFF_CONFIG.MAX_RETRY_ATTEMPTS) {
+                    reject(new Error('LIFF SDK failed to load after multiple attempts'));
+                    return;
+                }
+                
+                console.log(`Waiting for LIFF SDK... (attempt ${retryCount + 1})`);
+                setTimeout(() => {
+                    waitForLIFF(retryCount + 1).then(resolve).catch(reject);
+                }, LIFF_CONFIG.RETRY_DELAY);
+            });
+        }
+        
+        // Initialize LIFF with proper error handling
+        async function initializeLIFF() {
+            try {
+                showLoading(true);
+                console.log('Starting LIFF initialization...');
+                
+                // Wait for LIFF SDK to be available
+                liff = await waitForLIFF();
+                console.log('LIFF SDK loaded successfully');
+                
+                // Initialize LIFF
+                await liff.init({ 
+                    liffId: LIFF_CONFIG.MEMBER_CARD_ID,
+                    withLoginOnExternalBrowser: true
+                });
+                console.log('LIFF initialized successfully');
+                
+                // Check if running in LINE app
+                if (!liff.isInClient()) {
+                    console.log('Running outside LINE app');
+                    showError('กรุณาเปิดในแอป LINE เพื่อใช้งาน Member Card');
+                    return;
+                }
+                
+                // Check login status
                 if (!liff.isLoggedIn()) {
+                    console.log('User not logged in, redirecting to login...');
                     liff.login();
                     return;
                 }
                 
                 // Get user profile
                 userProfile = await liff.getProfile();
-                console.log('User Profile:', userProfile);
+                console.log('User Profile loaded:', userProfile.displayName);
                 
                 // Load member card data
                 await loadMemberCardData();
                 
-                // Start auto-refresh every 30 seconds
+                // Start auto-refresh
                 startAutoRefresh();
                 
             } catch (error) {
                 console.error('LIFF initialization error:', error);
-                showError('เกิดข้อผิดพลาดในการเชื่อมต่อ กรุณาลองใหม่อีกครั้ง');
+                handleLIFFError(error);
+            }
+        }
+        
+        // Handle LIFF errors with specific messages
+        function handleLIFFError(error) {
+            let errorMessage = 'เกิดข้อผิดพลาดในการเชื่อมต่อ';
+            
+            if (error.message?.includes('LIFF SDK failed to load')) {
+                errorMessage = 'ไม่สามารถโหลด LIFF SDK ได้ กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต';
+            } else if (error.code === 'LIFF_NOT_SUPPORTED') {
+                errorMessage = 'เบราว์เซอร์ของคุณไม่รองรับ LIFF กรุณาเปิดในแอป LINE';
+            } else if (error.code === 'INVALID_LIFF_ID') {
+                errorMessage = 'LIFF ID ไม่ถูกต้อง กรุณาติดต่อผู้ดูแลระบบ';
+            }
+            
+            showError(errorMessage);
+            showLoading(false);
+            
+            // Show retry button
+            showRetryOption();
+        }
+        
+        // Show retry option
+        function showRetryOption() {
+            const retryHtml = `
+                <div style="text-align: center; margin-top: 20px;">
+                    <button class="btn btn-primary" onclick="retryInitialization()">
+                        🔄 ลองใหม่อีกครั้ง
+                    </button>
+                    <button class="btn btn-secondary" onclick="openInBrowser()" style="margin-top: 10px;">
+                        🌐 เปิดในเบราว์เซอร์
+                    </button>
+                </div>
+            `;
+            
+            const errorElement = document.getElementById('errorMessage');
+            if (errorElement) {
+                errorElement.innerHTML += retryHtml;
+            }
+        }
+        
+        // Retry initialization
+        async function retryInitialization() {
+            hideError();
+            await initializeLIFF();
+        }
+        
+        // Open in external browser
+        function openInBrowser() {
+            const url = window.location.href;
+            if (liff && liff.isInClient()) {
+                liff.openWindow({ url: url, external: true });
+            } else {
+                window.open(url, '_blank');
+            }
+        }
+        
+        // Start initialization when DOM is ready
+        document.addEventListener('DOMContentLoaded', () => {
+            // Add small delay to ensure LIFF script is fully loaded
+            setTimeout(initializeLIFF, 500);
+        });
+        
+        // Fallback: Try to initialize on window load if DOM initialization failed
+        window.addEventListener('load', () => {
+            if (!liff && !document.getElementById('memberCardContent').style.display) {
+                console.log('Fallback initialization on window load');
+                setTimeout(initializeLIFF, 1000);
             }
         });
         
