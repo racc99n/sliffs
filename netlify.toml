@@ -1,5 +1,5 @@
 # netlify.toml
 [build]
-  command = "yarn add --dev typescript"
+  command = "yarn build"
   publish = "dist"
   function = "netlify/functions"
