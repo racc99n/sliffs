@@ -1,5 +1,6 @@
 # netlify.toml
 [build]
+  command = "netlify build"
   command = "netlify deploy --prod"
   publish = "dist"
   
