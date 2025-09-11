@@ -1,10 +1,10 @@
 {
-  "name": "liff-playground",
+  "name": "sliffs",
   "description": "This is a small web application that demonstrates the basic functionality of the [LINE Front-end Framework (LIFF)](https://developers.line.biz/en/docs/liff/overview/).",
   "private": true,
   "repository": {
     "type": "git",
-    "url": "https://github.com/line/liff-playground"
+    "url": "https://github.com/line/sliffs"
   },
   "version": "3.0.1",
   "scripts": {
