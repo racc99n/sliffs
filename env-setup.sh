@@ -1,3 +1,23 @@
+#!/bin/bash
+
+# Setup Environment Variables for Prima789 LINE Member Card System
+# Usage: chmod +x setup-env.sh && ./setup-env.sh
+
+echo "🔧 Setting up environment variables for Prima789 LINE Member Card..."
+
+# ตรวจสอบว่าติดตั้ง Netlify CLI แล้วหรือยัง
+if ! command -v netlify &> /dev/nullิ; then
+    echo "❌ Netlify CLI not found. Installing..."
+    npm install -g netlify-cli
+fi
+
+# Login ถ้ายังไม่ได้ login
+echo "🔐 Checking Netlify authentication..."
+netlify status || netlify login
+
+# ตั้งค่า Environment Variables
+echo "⚙️ Setting environment variables..."
+
 # Environment Variables for Prima789 LINE Member Card System v2.0
 # Central Server Configuration
 
