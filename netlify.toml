@@ -1,30 +1,25 @@
 [build]
-  functions = "netlify/functions"
   publish = "public"
-  command = "echo 'No build step required'"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
 
 [dev]
   functions = "netlify/functions"
   publish = "public"
   port = 8888
-  command = "echo 'Functions only - no dev server needed'"
 
-[functions]
-  node_bundler = "esbuild"
+[context.production.environment]
+  NODE_ENV = "production"
 
-[[headers]]
-  for = "/*"
-  [headers.values]
-    X-Frame-Options = "DENY"
-    X-XSS-Protection = "1; mode=block"
-    X-Content-Type-Options = "nosniff"
+[context.deploy-preview.environment]
+  NODE_ENV = "development"
 
-[[headers]]
-  for = "/liff-*"
-  [headers.values]
-    X-Frame-Options = "ALLOWALL"
-
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/:splat"
-  status = 200
+[context.branch-deploy.environment]
+  NODE_ENV = "development"
