@@ -1,5 +1,5 @@
 # netlify.toml
 [build]
-  command = "yarn && yarn dev"
+  command = "yarn && yarn build"
   publish = "dist"
   
