@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prima789 Member Card</title>
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+
+        .card-container {
+            max-width: 400px;
+            margin: 0 auto;
+            background: #fff;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            overflow: hidden;
+            position: relative;
+        }
+
+        .card-header {
+            background: linear-gradient(135deg, #FF6B6B, #FF8E53);
+            padding: 30px 20px;
+            text-align: center;
+            color: white;
+            position: relative;
+        }
+
+        .card-header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iMjAiIGN5PSIyMCIgcj0iMjAiIGZpbGw9IndoaXRlIiBmaWxsLW9wYWNpdHk9IjAuMSIvPgo8L3N2Zz4K') repeat;
+            opacity: 0.3;
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            position: relative;
+        }
+
+        .member-title {
+            font-size: 16px;
+            opacity: 0.9;
+            position: relative;
+        }
+
+        .card-body {
+            padding: 30px 20px;
+        }
+
+        .member-info {
+            margin-bottom: 25px;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .info-row:last-child {
+            border-bottom: none;
+        }
+
+        .info-label {
+            font-weight: 600;
+            color: #666;
+        }
+
+        .info-value {
+            font-weight: bold;
+            color: #333;
+        }
+
+        .balance {
+            color: #4CAF50 !important;
+            font-size: 18px;
+        }
+
+        .points {
+            color: #FF9800 !important;
+            font-size: 16px;
+        }
+
+        .tier {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .tier.bronze {
+            background: #CD7F32;
+            color: white;
+        }
+
+        .tier.silver {
+            background: #C0C0C0;
+            color: #333;
+        }
+
+        .tier.gold {
+            background: #FFD700;
+            color: #333;
+        }
+
+        .tier.platinum {
+            background: #E5E4E2;
+            color: #333;
+        }
+
+        .tier.diamond {
+            background: linear-gradient(45deg, #b9f2ff 0%, #bae8ff 100%);
+            color: #333;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .spinner {
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            text-align: center;
+            padding: 40px;
+            color: #e74c3c;
+        }
+
+        .refresh-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-top: 15px;
+            width: 100%;
+        }
+
+        .refresh-btn:hover {
+            background: #5a6fd8;
+        }
+
+        .sync-status {
+            text-align: center;
+            margin: 20px 0;
+            font-size: 12px;
+            color: #888;
+        }
+
+        .sync-success {
+            color: #4CAF50;
+        }
+
+        .last-updated {
+            text-align: center;
+            font-size: 11px;
+            color: #999;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="card-container">
+        <div class="card-header">
+            <div class="logo">🎰 PRIMA789</div>
+            <div class="member-title">Member Card</div>
+        </div>
+        
+        <div class="card-body">
+            <div id="loading" class="loading">
+                <div class="spinner"></div>
+                กำลังโหลดข้อมูลสมาชิก...
+            </div>
+            
+            <div id="member-card" class="member-info" style="display: none;">
+                <div class="info-row">
+                    <span class="info-label">ชื่อผู้ใช้</span>
+                    <span class="info-value" id="username">-</span>
+                </div>
+                
+                <div class="info-row">
+                    <span class="info-label">ยอดเงินคงเหลือ</span>
+                    <span class="info-value balance" id="balance">฿ 0</span>
+                </div>
+                
+                <div class="info-row">
+                    <span class="info-label">คะแนนสะสม</span>
+                    <span class="info-value points" id="points">0 pts</span>
+                </div>
+                
+                <div class="info-row">
+                    <span class="info-label">ระดับสมาชิก</span>
+                    <span class="info-value">
+                        <span class="tier" id="tier">Bronze</span>
+                    </span>
+                </div>
+                
+                <div class="info-row">
+                    <span class="info-label">สมาชิกตั้งแต่</span>
+                    <span class="info-value" id="member-since">-</span>
+                </div>
+
+                <div class="sync-status">
+                    <span id="sync-message" class="sync-success">✅ ข้อมูลล่าสุด</span>
+                </div>
+
+                <button class="refresh-btn" onclick="refreshMemberData()">
+                    🔄 รีเฟรชข้อมูล
+                </button>
+
+                <div class="last-updated">
+                    อัปเดตล่าสุด: <span id="last-updated">-</span>
+                </div>
+            </div>
+            
+            <div id="error" class="error" style="display: none;">
+                <h3>❌ ไม่สามารถโหลดข้อมูลได้</h3>
+                <p id="error-message">กรุณาตรวจสอบการเชื่อมต่อ</p>
+                <button class="refresh-btn" onclick="loadMemberData()">
+                    ลองใหม่
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const LIFF_ID = process.env.LINE_LIFF_ID_MEMBER_CARD || '1234567890-abcdefgh'; // Replace with your actual LIFF ID
+        const API_BASE = 'https://sliffs.netlify.app/.netlify/functions';
+        
+        let lineUserId = null;
+        let memberData = null;
+
+        // Initialize LIFF
+        async function initializeLiff() {
+            try {
+                console.log('Initializing LIFF...');
+                
+                if (typeof liff === 'undefined') {
+                    throw new Error('LIFF SDK not loaded');
+                }
+
+                await liff.init({ liffId: LIFF_ID });
+                console.log('LIFF initialized successfully');
+
+                if (!liff.isLoggedIn()) {
+                    console.log('User not logged in, redirecting to login...');
+                    liff.login();
+                    return;
+                }
+
+                // Get LINE Profile
+                const profile = await liff.getProfile();
+                lineUserId = profile.userId;
+                console.log('LINE User ID:', lineUserId);
+                
+                // Load member data
+                await loadMemberData();
+
+            } catch (error) {
+                console.error('LIFF initialization failed:', error);
+                showError('ไม่สามารถเชื่อมต่อกับ LINE ได้: ' + error.message);
+            }
+        }
+
+        // Load Member Data
+        async function loadMemberData() {
+            try {
+                showLoading();
+                
+                if (!lineUserId) {
+                    throw new Error('ไม่พบ LINE User ID');
+                }
+
+                console.log('Loading member data for:', lineUserId);
+
+                // Check if account is linked
+                const response = await fetch(`${API_BASE}/check-account-linking?lineUserId=${lineUserId}`);
+                const data = await response.json();
+
+                if (!data.success) {
+                    throw new Error(data.message || 'ไม่สามารถตรวจสอบข้อมูลได้');
+                }
+
+                if (!data.isLinked) {
+                    // Account not linked yet
+                    showError('บัญชีของคุณยังไม่ได้เชื่อมโยง กรุณาเข้าสู่ระบบผ่านเว็บไซต์ Prima789.com');
+                    return;
+                }
+
+                memberData = data.data;
+                displayMemberData(memberData);
+                
+            } catch (error) {
+                console.error('Failed to load member data:', error);
+                showError(error.message);
+            }
+        }
+
+        // Display Member Data
+        function displayMemberData(data) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('member-card').style.display = 'block';
+
+            // Update display
+            document.getElementById('username').textContent = data.username || '-';
+            document.getElementById('balance').textContent = `฿ ${formatNumber(data.balance || 0)}`;
+            document.getElementById('points').textContent = `${formatNumber(data.points || 0)} pts`;
+            
+            // Update tier
+            const tierElement = document.getElementById('tier');
+            const tierClass = (data.tier || 'bronze').toLowerCase();
+            tierElement.textContent = data.tier || 'Bronze';
+            tierElement.className = `tier ${tierClass}`;
+            
+            // Update dates
+            document.getElementById('member-since').textContent = formatDate(data.created_at);
+            document.getElementById('last-updated').textContent = new Date().toLocaleString('th-TH');
+
+            console.log('Member data displayed successfully');
+        }
+
+        // Refresh Member Data
+        async function refreshMemberData() {
+            if (!lineUserId) {
+                showError('ไม่พบ LINE User ID');
+                return;
+            }
+
+            try {
+                // Force refresh from Prima789
+                const response = await fetch(`${API_BASE}/sync-user-data`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        lineUserId: lineUserId,
+                        forceSync: true
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    document.getElementById('sync-message').textContent = '✅ ข้อมูลอัปเดตแล้ว';
+                    setTimeout(() => {
+                        loadMemberData();
+                    }, 1000);
+                } else {
+                    document.getElementById('sync-message').textContent = '⚠️ ไม่สามารถอัปเดตได้';
+                }
+                
+            } catch (error) {
+                console.error('Sync error:', error);
+                document.getElementById('sync-message').textContent = '❌ เกิดข้อผิดพลาด';
+            }
+        }
+
+        // Show Loading
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('member-card').style.display = 'none';
+            document.getElementById('error').style.display = 'none';
+        }
+
+        // Show Error
+        function showError(message) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('member-card').style.display = 'none';
+            document.getElementById('error').style.display = 'block';
+            document.getElementById('error-message').textContent = message;
+        }
+
+        // Utility Functions
+        function formatNumber(num) {
+            return new Intl.NumberFormat('th-TH').format(num);
+        }
+
+        function formatDate(dateString) {
+            if (!dateString) return '-';
+            const date = new Date(dateString);
+            return date.toLocaleDateString('th-TH');
+        }
+
+        // Initialize when page loads
+        window.addEventListener('load', initializeLiff);
+    </script>
+</body>
+</html>

@@ -13,7 +13,8 @@
 [dev]
   functions = "netlify/functions"
   publish = "public"
-  port = 8888
+  port = 8889
+  autoLaunch = false
 
 [context.production.environment]
   NODE_ENV = "production"
