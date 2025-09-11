@@ -1,8 +1,8 @@
 {
   "name": "sliffs",
   "version": "1.0.0",
-  "description": "This is a web application that allows you to try out the basic features of the [LINE Front-end Framework (LIFF)](https://developers.line.biz/en/docs/liff/overview/). For example, you can deploy the following playground to your server.",
-  "main": "prima789-line-sync.js",
+  "description": "Prima789 LINE Member Card System with LIFF and Netlify Functions",
+  "main": "index.js",
   "dependencies": {
     "canvas": "^3.2.0",
     "node-fetch": "^3.3.2",
@@ -22,12 +22,33 @@
     "xtend": "^4.0.2"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "echo 'Build completed - Static files ready'",
+    "dev": "netlify dev",
+    "start": "netlify dev",
+    "deploy": "netlify deploy --prod",
+    "deploy:dev": "netlify deploy",
+    "test": "echo \"Tests not implemented yet\" && exit 0",
+    "check-env": "netlify env:list",
+    "health": "curl ${NETLIFY_URL:-http://localhost:8888}/.netlify/functions/health-check"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "line",
+    "liff",
+    "netlify",
+    "prima789",
+    "member-card",
+    "socket.io"
+  ],
+  "author": "Prima789 Development Team",
   "license": "ISC",
   "devDependencies": {
     "netlify-cli": "^23.5.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/sliffs.git"
   }
 }

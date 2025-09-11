@@ -4,254 +4,137 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Prima789 LINE Member Card System</title>
-    <meta name="description" content="ระบบบัตรสมาชิกดิจิทัลผ่าน LINE สำหรับ Prima789.com">
-    
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+            color: white;
             min-height: 100vh;
         }
-
         .container {
-            max-width: 1200px;
+            max-width: 800px;
             margin: 0 auto;
+            text-align: center;
+        }
+        .logo {
+            font-size: 2rem;
+            font-weight: bold;
+            margin-bottom: 1rem;
+            color: #00ff88;
+        }
+        .status {
+            background: rgba(255, 255, 255, 0.1);
             padding: 20px;
-        }
-
-        .header {
-            text-align: center;
-            color: white;
-            padding: 40px 0;
-        }
-
-        .header h1 {
-            font-size: 3rem;
-            margin-bottom: 20px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-        }
-
-        .header p {
-            font-size: 1.2rem;
-            opacity: 0.9;
-            max-width: 600px;
-            margin: 0 auto;
-        }
-
-        .main-content {
-            background: white;
-            border-radius: 20px;
-            padding: 40px;
-            margin: 40px 0;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        }
-
-        .api-status {
-            background: #f8f9fa;
-            border-radius: 15px;
-            padding: 30px;
-            margin: 30px 0;
-        }
-
-        .status-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 15px;
-            margin: 10px 0;
-            background: white;
             border-radius: 10px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin: 20px 0;
         }
-
-        .status-label {
-            font-weight: 600;
+        .functions {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 30px;
         }
-
-        .status-indicator {
-            padding: 5px 15px;
-            border-radius: 20px;
-            font-size: 0.9rem;
-            font-weight: bold;
+        .function-card {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
         }
-
-        .status-success {
-            background: #d4edda;
-            color: #155724;
+        .function-card h3 {
+            margin: 0 0 10px 0;
+            color: #ffdd44;
         }
-
-        .status-loading {
-            background: #fff3cd;
-            color: #856404;
-        }
-
-        .status-error {
-            background: #f8d7da;
-            color: #721c24;
-        }
-
-        .btn {
-            display: inline-block;
-            padding: 15px 30px;
-            margin: 10px;
+        .test-btn {
+            background: #00ff88;
+            color: #000;
             border: none;
-            border-radius: 25px;
-            font-size: 1.1rem;
-            font-weight: bold;
-            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 5px;
             cursor: pointer;
-            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+            margin-top: 10px;
         }
-
-        .btn-primary {
-            background: #667eea;
-            color: white;
-        }
-
-        .btn-primary:hover {
-            background: #5a6fd8;
-            transform: translateY(-2px);
-        }
-
-        .cta-section {
-            text-align: center;
-            margin: 50px 0;
+        .test-btn:hover {
+            background: #00cc66;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <!-- Header -->
-        <header class="header">
-            <h1>�� Prima789 LINE Member Card</h1>
-            <p>ระบบบัตรสมาชิกดิจิทัลที่เชื่อมต่อกับ LINE แบบ Real-time<br>
-            สำหรับเว็บไซต์ Prima789.com</p>
-        </header>
+        <div class="logo">💳 Prima789 LINE Member Card</div>
+        <div class="status">
+            <h2>🚀 System Status</h2>
+            <p>Netlify Functions and LIFF Apps are running</p>
+            <p id="status-text">Checking status...</p>
+        </div>
 
-        <!-- Main Content -->
-        <main class="main-content">
-            <h2 style="text-align: center; margin-bottom: 30px;">🚀 ระบบพร้อมใช้งาน</h2>
-            
-            <!-- API Status -->
-            <div class="api-status">
-                <h3 style="margin-bottom: 20px;">📊 สถานะระบบ</h3>
-                <div id="api-status-list">
-                    <div class="status-item">
-                        <span class="status-label">🗄️ Database Connection</span>
-                        <span class="status-indicator status-loading" id="db-status">ตรวจสอบ...</span>
-                    </div>
-                    <div class="status-item">
-                        <span class="status-label">🔗 Account Linking API</span>
-                        <span class="status-indicator status-loading" id="linking-status">ตรวจสอบ...</span>
-                    </div>
-                    <div class="status-item">
-                        <span class="status-label">🔄 Sync API</span>
-                        <span class="status-indicator status-loading" id="sync-status">ตรวจสอบ...</span>
-                    </div>
-                    <div class="status-item">
-                        <span class="status-label">🤖 LINE Webhook</span>
-                        <span class="status-indicator status-loading" id="webhook-status">ตรวจสอบ...</span>
-                    </div>
-                </div>
+        <div class="functions">
+            <div class="function-card">
+                <h3>🏥 Health Check</h3>
+                <p>ตรวจสอบการเชื่อมต่อ Database</p>
+                <a href="/.netlify/functions/health-check" class="test-btn" target="_blank">Test</a>
             </div>
 
-            <!-- CTA Section -->
-            <div class="cta-section">
-                <h3 style="margin-bottom: 20px;">เริ่มใช้งานตอนนี้</h3>
-                <a href="/liff-member-card.html" class="btn btn-primary">📱 เปิดบัตรสมาชิก</a>
-                <a href="https://prima789.com/login" class="btn btn-primary">�� เข้าสู่ระบบ Prima789</a>
+            <div class="function-card">
+                <h3>🔗 Account Linking</h3>
+                <p>เชื่อมโยงบัญชี LINE กับ Prima789</p>
+                <a href="/account-linking.html" class="test-btn">Open LIFF</a>
             </div>
-        </main>
+
+            <div class="function-card">
+                <h3>💳 Member Card</h3>
+                <p>บัตรสมาชิกและยอดเงิน</p>
+                <a href="/member-card.html" class="test-btn">Open LIFF</a>
+            </div>
+
+            <div class="function-card">
+                <h3>📊 Balance Inquiry</h3>
+                <p>ตรวจสอบยอดเงินคงเหลือ</p>
+                <a href="/.netlify/functions/balance-inquiry" class="test-btn" target="_blank">Test API</a>
+            </div>
+
+            <div class="function-card">
+                <h3>🔄 Sync Data</h3>
+                <p>ซิงค์ข้อมูลจาก Prima789</p>
+                <a href="/.netlify/functions/sync-user-data" class="test-btn" target="_blank">Test Sync</a>
+            </div>
+
+            <div class="function-card">
+                <h3>🤖 LINE Bot</h3>
+                <p>Webhook สำหรับ LINE Bot</p>
+                <a href="/.netlify/functions/webhook" class="test-btn" target="_blank">Webhook</a>
+            </div>
+        </div>
     </div>
 
     <script>
-        // Check API Status
-        async function checkAPIStatus() {
-            const apiBase = window.location.origin + '/.netlify/functions';
-            
-            // Test Health Check
+        // Check system status
+        async function checkStatus() {
             try {
-                const response = await fetch(`${apiBase}/health-check`);
+                const response = await fetch('/.netlify/functions/health-check');
                 const data = await response.json();
                 
                 if (data.status === 'healthy') {
-                    updateStatus('db-status', '✅ เชื่อมต่อแล้ว', 'success');
+                    document.getElementById('status-text').innerHTML = 
+                        `✅ System Healthy<br>
+                         📊 Database: ${data.database}<br>
+                         🕐 Server Time: ${new Date(data.server_time).toLocaleString('th-TH')}`;
                 } else {
-                    updateStatus('db-status', '❌ ปัญหาการเชื่อมต่อ', 'error');
+                    document.getElementById('status-text').textContent = '❌ System Error';
                 }
             } catch (error) {
-                updateStatus('db-status', '❌ ไม่สามารถเชื่อมต่อ', 'error');
-            }
-
-            // Test Account Linking
-            try {
-                const response = await fetch(`${apiBase}/check-account-linking?lineUserId=test`);
-                const data = await response.json();
-                
-                if (data.success !== undefined) {
-                    updateStatus('linking-status', '✅ พร้อมใช้งาน', 'success');
-                } else {
-                    updateStatus('linking-status', '❌ ไม่พร้อม', 'error');
-                }
-            } catch (error) {
-                updateStatus('linking-status', '❌ ไม่สามารถเชื่อมต่อ', 'error');
-            }
-
-            // Test Sync API
-            try {
-                const response = await fetch(`${apiBase}/sync-user-data`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ test: true })
-                });
-                
-                if (response.status === 400) {
-                    updateStatus('sync-status', '✅ พร้อมใช้งาน', 'success');
-                } else {
-                    updateStatus('sync-status', '❌ ตอบสนองไม่ปกติ', 'error');
-                }
-            } catch (error) {
-                updateStatus('sync-status', '❌ ไม่สามารถเชื่อมต่อ', 'error');
-            }
-
-            // Test Webhook
-            try {
-                const response = await fetch(`${apiBase}/webhook`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ test: true })
-                });
-                
-                if (response.status === 401) {
-                    updateStatus('webhook-status', '✅ พร้อมใช้งาน', 'success');
-                } else {
-                    updateStatus('webhook-status', '❌ ตอบสนองไม่ปกติ', 'error');
-                }
-            } catch (error) {
-                updateStatus('webhook-status', '❌ ไม่สามารถเชื่อมต่อ', 'error');
+                document.getElementById('status-text').textContent = '⚠️ Cannot connect to API';
             }
         }
 
-        function updateStatus(elementId, text, status) {
-            const element = document.getElementById(elementId);
-            element.textContent = text;
-            element.className = `status-indicator status-${status}`;
-        }
-
-        // Check status when page loads
-        window.addEventListener('load', () => {
-            console.log('🎰 Prima789 LINE Member Card System');
-            console.log('Server:', window.location.origin);
-            setTimeout(checkAPIStatus, 1000);
-        });
+        // Check status on page load
+        checkStatus();
+        
+        // Auto-refresh every 30 seconds
+        setInterval(checkStatus, 30000);
     </script>
 </body>
 </html>

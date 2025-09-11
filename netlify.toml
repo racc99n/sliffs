@@ -1,26 +1,93 @@
 [build]
+  # Build command
+  command = "npm run build"
+  
+  # Directory to publish (static files)
   publish = "public"
+  
+  # Functions directory
   functions = "netlify/functions"
 
+[build.environment]
+  NODE_VERSION = "18"
+  NPM_FLAGS = "--prefix=/dev/null"
+
+[dev]
+  # Local development port
+  port = 8888
+  
+  # Functions port for local dev
+  functionsPort = 9999
+  
+  # Auto-open browser
+  autoLaunch = false
+
+# Functions settings
 [functions]
-  node_bundler = "esbuild"
+  # Node.js version for functions
+  node_version = "18"
+  
+  # External dependencies for functions
+  external_node_modules = ["pg", "canvas"]
+
+# Headers for security
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# CORS headers for API functions
+[[headers]]
+  for = "/.netlify/functions/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Headers = "Content-Type, Authorization, X-API-Key"
+    Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
+
+# Redirects
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
 
 [[redirects]]
-  from = "/*"
+  from = "/"
   to = "/index.html"
   status = 200
 
-[dev]
-  functions = "netlify/functions"
-  publish = "public"
-  port = 8889
-  autoLaunch = false
+[[redirects]]
+  from = "/member-card"
+  to = "/member-card.html"
+  status = 200
 
-[context.production.environment]
-  NODE_ENV = "production"
+[[redirects]]
+  from = "/account-linking"
+  to = "/account-linking.html"
+  status = 200
 
-[context.deploy-preview.environment]
-  NODE_ENV = "development"
+# Custom error pages
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 404
 
-[context.branch-deploy.environment]
-  NODE_ENV = "development"
+# Environment variables (for reference - actual values set in Netlify UI)
+[build.processing]
+  skip_processing = false
+
+[build.processing.css]
+  bundle = true
+  minify = true
+
+[build.processing.js]
+  bundle = true
+  minify = true
+
+[build.processing.html]
+  pretty_urls = true
+
+[build.processing.images]
+  compress = true
