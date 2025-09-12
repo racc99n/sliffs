@@ -865,11 +865,11 @@
         function openAccountLinking() {
             if (liff.isInClient()) {
                 liff.openWindow({
-                    url: `${window.location.origin}/2008090006-ZMGmoOla`,
+                    url: `${window.location.origin}/.netlify/functions/link-prima789-account?lineUserId=${userProfile.userId}`,
                     external: false
                 });
             } else {
-                window.location.href = '/2008090006-ZMGmoOla';
+                window.location.href = 'netlify/functions/link-prima789-account?lineUserId=' + userProfile.userId;
             }
         }
         
