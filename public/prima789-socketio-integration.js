@@ -12,7 +12,7 @@
   const CONFIG = {
     WEBHOOK_URL:
       'https://sliffs.netlify.app/.netlify/functions/transaction-webhook',
-    API_KEY: 'your_actual_api_key_here', // ⚠️ ใส่ API Key จริงที่นี่
+    API_KEY: 'PRIMA789_f1922de52a8e5c6bf5b4777dabeff027', // ⚠️ ใส่ API Key จริงที่นี่
     DEBUG: true,
     VERSION: '3.0.0-console-log',
     RETRY_ATTEMPTS: 3,
