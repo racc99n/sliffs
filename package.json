@@ -31,6 +31,12 @@
     "deploy:dev": "netlify deploy",
     "deploy:force": "netlify deploy --prod",
     
+    "setup": "node quick-setup.js",
+    "setup:full": "node scripts/init-database.js init",
+    "setup:env": "chmod +x prima789-env-setup.sh && ./prima789-env-setup.sh",
+    "setup:richmenu": "node rich-menu-setup-with-image.js",
+    "setup:complete": "npm run setup && npm run deploy",
+    
     "db:init": "node scripts/init-database.js init",
     "db:verify": "node scripts/init-database.js verify", 
     "db:sample": "node scripts/init-database.js sample",
@@ -41,14 +47,9 @@
     "test:quick": "node scripts/test-apis.js",
     "test:health": "curl -f ${NETLIFY_URL:-http://localhost:8888}/.netlify/functions/health-check || exit 1",
     
-    "setup": "npm run setup:env && npm run db:init && npm run setup:richmenu",
-    "setup:env": "chmod +x prima789-env-setup.sh && ./prima789-env-setup.sh",
-    "setup:richmenu": "node rich-menu-setup-with-image.js",
-    "setup:complete": "chmod +x deploy.sh && ./deploy.sh",
-    
     "check-env": "netlify env:list",
     "check-health": "curl -s ${NETLIFY_URL:-http://localhost:8888}/.netlify/functions/health-check | jq '.'",
-    "check-db": "node scripts/init-database.js verify",
+    "check-db": "node quick-setup.js",
     
     "logs": "netlify logs:functions",
     "status": "netlify status",
@@ -60,9 +61,9 @@
     "production:health": "curl -f https://sliffs.netlify.app/.netlify/functions/health-check",
     "production:test": "NETLIFY_URL=https://sliffs.netlify.app node scripts/test-apis.js",
     
-    "postinstall": "echo '✅ Dependencies installed - System ready for deployment' && echo '📖 Run: npm run setup (first time) or npm run deploy (update)'",
+    "postinstall": "echo '✅ Dependencies installed - Run: npm run setup (first time setup)'",
     
-    "help": "echo 'Prima789 LINE Member Card System v2.0 - Commands:' && echo '  npm run setup     - First time setup (DB + ENV + Rich Menu)' && echo '  npm run deploy    - Deploy to production' && echo '  npm run test      - Test all APIs' && echo '  npm run db:init   - Initialize database' && echo '  npm run check-health - Check system health' && echo '  npm run production:test - Test production APIs'"
+    "help": "echo 'Prima789 LINE Member Card System v2.0 - Commands:' && echo '  npm run setup     - Quick setup (recommended)' && echo '  npm run deploy    - Deploy to production' && echo '  npm run test      - Test all APIs' && echo '  npm run check-health - Check system health'"
   },
   "keywords": [
     "line",
