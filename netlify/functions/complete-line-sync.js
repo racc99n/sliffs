@@ -84,7 +84,7 @@ exports.handler = async (event, context) => {
     // Check if account is already linked
     const existingResult = await client.query(
       `
-            SELECT * FROM line_accounts 
+            SELECT * FROM line_users 
             WHERE line_user_id = $1 OR prima789_user_id = $2
         `,
       [details.line_user_id, accountData.prima789_user_id]
@@ -100,7 +100,7 @@ exports.handler = async (event, context) => {
         // Same linking, just update
         await client.query(
           `
-                    UPDATE line_accounts 
+                    UPDATE line_users 
                     SET 
                         display_name = $1,
                         balance = $2,
@@ -151,7 +151,7 @@ exports.handler = async (event, context) => {
       // Create new linking
       await client.query(
         `
-                INSERT INTO line_accounts (
+                INSERT INTO line_users (
                     line_user_id,
                     prima789_user_id,
                     username,
