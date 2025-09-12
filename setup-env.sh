@@ -41,8 +41,8 @@ netlify env:set NETLIFY_URL "https://sliffs.netlify.app"
 netlify env:set NODE_ENV "production"
 
 # Optional: Prima789 API (ถ้ามี direct API access)
-netlify env:set PRIMA789_API_KEY "your_prima789_sssa"
-netlify env:set PRIMA789_API_URL "https://api.prima789.net/socket.io"
+netlify env:set PRIMA789_API_KEY "PRIMA789_f1922de52a8e5c6bf5b4777dabeff027"
+netlify env:set PRIMA789_API_URL "https://api.prima789.net/"
 
 # Admin Dashboard (ถ้าต้องการ)
 netlify env:set ADMIN_USERNAME "admin"
