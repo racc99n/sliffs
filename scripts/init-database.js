@@ -23,7 +23,7 @@ const pool = new Pool({
     ssl: {
         rejectUnauthorized: false
     }
-}
+}   
 
 // Fallback inline schema creation
 async function createInlineSchema() {

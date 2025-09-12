@@ -1,96 +1,35 @@
 {
   "name": "sliffs",
-  "version": "2.0.0",
-  "description": "Prima789 LINE Member Card System - PRODUCTION READY with Real Database Integration",
+  "version": "1.0.0",
+  "description": "SLIFFS - Prima789 LINE Integration Functions & Front-end System",
   "main": "index.js",
-  "dependencies": {
-    "@line/liff": "^2.27.2",
-    "canvas": "^3.2.0",
-    "dotenv": "^16.3.1",
-    "node-fetch": "^3.3.2",
-    "pg": "^8.11.3",
-    "pg-cloudflare": "^1.2.7",
-    "pg-connection-string": "^2.9.1",
-    "pg-int8": "^1.0.1",
-    "pg-pool": "^3.10.1",
-    "pg-protocol": "^1.10.3",
-    "pg-types": "^2.2.0",
-    "pgpass": "^1.0.5",
-    "postgres-array": "^2.0.0",
-    "postgres-bytea": "^1.0.0",
-    "postgres-date": "^1.0.7",
-    "postgres-interval": "^1.2.0",
-    "split2": "^4.2.0",
-    "xtend": "^4.0.2"
-  },
   "scripts": {
-    "build": "echo 'Static files ready in public directory'",
-    "dev": "netlify dev --node-version=20",
-    "start": "netlify dev --node-version=20",
-    "deploy": "npm run test:quick && netlify deploy --prod",
-    "deploy:dev": "netlify deploy",
-    "deploy:force": "netlify deploy --prod",
-    
+    "dev": "netlify dev",
+    "build": "echo 'Build completed'",
+    "deploy": "netlify deploy --prod",
+    "deploy:preview": "netlify deploy",
     "setup": "node quick-setup.js",
-    "setup:full": "node scripts/init-database.js init",
-    "setup:env": "chmod +x prima789-env-setup.sh && ./prima789-env-setup.sh",
-    "setup:richmenu": "node rich-menu-setup-with-image.js",
-    "setup:complete": "npm run setup && npm run deploy",
-    
-    "db:init": "node scripts/init-database.js init",
-    "db:verify": "node scripts/init-database.js verify", 
-    "db:sample": "node scripts/init-database.js sample",
-    "db:test": "node scripts/init-database.js test",
-    
-    "test": "node scripts/test-apis.js",
-    "test:verbose": "node scripts/test-apis.js --verbose",
-    "test:quick": "node scripts/test-apis.js",
-    "test:health": "curl -f ${NETLIFY_URL:-http://localhost:8888}/.netlify/functions/health-check || exit 1",
-    
-    "check-env": "netlify env:list",
-    "check-health": "curl -s ${NETLIFY_URL:-http://localhost:8888}/.netlify/functions/health-check | jq '.'",
-    "check-db": "node quick-setup.js",
-    
-    "logs": "netlify logs:functions",
-    "status": "netlify status",
-    "open": "netlify open",
-    
-    "clean": "rm -rf node_modules package-lock.json .netlify",
-    "reset": "npm run clean && npm install",
-    
-    "production:health": "curl -f https://sliffs.netlify.app/.netlify/functions/health-check",
-    "production:test": "NETLIFY_URL=https://sliffs.netlify.app node scripts/test-apis.js",
-    
-    "postinstall": "echo '✅ Dependencies installed - Run: npm run setup (first time setup)'",
-    
-    "help": "echo 'Prima789 LINE Member Card System v2.0 - Commands:' && echo '  npm run setup     - Quick setup (recommended)' && echo '  npm run deploy    - Deploy to production' && echo '  npm run test      - Test all APIs' && echo '  npm run check-health - Check system health'"
+    "test": "node scripts/test-functions.js",
+    "check-health": "curl https://sliffs.netlify.app/.netlify/functions/health-check"
   },
   "keywords": [
-    "line",
-    "liff",
     "netlify",
+    "functions",
+    "line",
     "prima789",
-    "member-card",
-    "postgresql",
-    "neon-database",
-    "production-ready"
+    "liff",
+    "postgresql"
   ],
-  "author": "Prima789 Development Team",
-  "license": "ISC",
+  "author": "SLIFFS Team",
+  "license": "MIT",
+  "dependencies": {
+    "pg": "^8.11.3",
+    "node-fetch": "^2.7.0"
+  },
   "devDependencies": {
-    "netlify-cli": "^23.5.1"
+    "netlify-cli": "^17.10.1"
   },
   "engines": {
     "node": ">=18.0.0"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/yourusername/sliffs.git"
-  },
-  "config": {
-    "production_url": "https://sliffs.netlify.app",
-    "database_provider": "neon-postgresql",
-    "line_platform": "messaging-api",
-    "deployment_target": "netlify-functions"
   }
 }
