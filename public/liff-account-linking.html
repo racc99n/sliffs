@@ -832,7 +832,10 @@
                 let requestData = {
                     lineUserId: userProfile.userId,
                     syncMethod: selectedSyncMethod,
-                    userProfile: userProfile
+                    userProfile: {
+                        displayName: userProfile.displayName,
+                        pictureUrl: userProfile.pictureUrl
+                    }
                 };
                 
                 if (selectedSyncMethod === 'manual') {
@@ -845,43 +848,37 @@
                     requestData.username = username;
                 }
                 
-                await delay(2000); // Simulate processing time
-                
-                const response = await mockApiCall('/api/process-account-sync', {
+                const result = await makeApiCall(API_CONFIG.ENDPOINTS.SEARCH_ACCOUNT, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
                     body: JSON.stringify(requestData)
                 });
                 
-                const result = await response.json();
+                if (!result.success) {
+                    throw new Error(result.error || 'ไม่สามารถประมวลผลได้');
+                }
                 
-                if (result.success) {
-                    if (result.accountFound) {
-                        foundAccount = result.account;
-                        displayFoundAccount();
-                        showStep(3);
-                        setProgress(75);
-                    } else if (selectedSyncMethod === 'socket') {
-                        setupSocketSync();
-                        showStep(3);
-                        setProgress(75);
-                    } else {
-                        showError(result.message || 'ไม่พบบัญชี Prima789 ที่ตรงกัน');
-                    }
+                if (result.data.accountFound) {
+                    foundAccount = result.data.account;
+                    displayFoundAccount();
+                    showStep(3);
+                    setProgress(75);
+                } else if (selectedSyncMethod === 'socket') {
+                    // Handle socket sync
+                    setupSocketSync();
+                    showStep(3);
+                    setProgress(75);
                 } else {
-                    showError(result.error || 'เกิดข้อผิดพลาดในการค้นหาบัญชี');
+                    showError(result.data.message || 'ไม่พบบัญชี Prima789 ที่ตรงกัน');
                 }
                 
             } catch (error) {
                 console.error('Error processing sync method:', error);
-                showError('เกิดข้อผิดพลาดในการดำเนินการ กรุณาลองใหม่อีกครั้ง');
+                showError(error.message || 'เกิดข้อผิดพลาดในการดำเนินการ');
             }
             
             showLoading('process', false);
         }
-        
+
         function displayFoundAccount() {
             document.getElementById('accountMatchDisplay').style.display = 'block';
             document.getElementById('socketWaitingBox').style.display = 'none';
@@ -999,6 +996,7 @@
         }
         
         async function confirmLinking() {
+
             if (!foundAccount) {
                 showError('ไม่พบข้อมูลบัญชี กรุณาลองใหม่อีกครั้ง');
                 return;
@@ -1007,39 +1005,46 @@
             showLoading('confirm', true);
             
             try {
-                await delay(1500);
-                
-                const response = await mockApiCall('/api/confirm-account-linking', {
+                const result = await makeApiCall(API_CONFIG.ENDPOINTS.LINK_ACCOUNT, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
                     body: JSON.stringify({
                         lineUserId: userProfile.userId,
-                        prima789Account: foundAccount,
-                        userProfile: userProfile
+                        prima789Account: {
+                            username: foundAccount.username,
+                            displayName: foundAccount.displayName
+                        },
+                        userProfile: {
+                            displayName: userProfile.displayName,
+                            pictureUrl: userProfile.pictureUrl
+                        }
                     })
                 });
                 
-                const result = await response.json();
+                if (!result.success) {
+                    throw new Error(result.error || 'ไม่สามารถเชื่อมโยงบัญชีได้');
+                }
                 
-                if (result.success) {
-                    showStep(4);
-                    setProgress(100);
-                    
-                    if (isLIFFAvailable && liff.isInClient()) {
-                        liff.sendMessages([{
+                // เชื่อมโยงสำเร็จ
+                showStep(4);
+                setProgress(100);
+                
+                // ส่งข้อความแจ้งเตือนใน LINE
+                if (isLIFFAvailable && liff.isInClient()) {
+                    try {
+                        await liff.sendMessages([{
                             type: 'text',
-                            text: '✅ เชื่อมโยงบัญชี Prima789 สำเร็จแล้ว!\nตอนนี้คุณสามารถใช้ Member Card ผ่าน LINE ได้เลย'
+                            text: `✅ เชื่อมโยงบัญชี Prima789 สำเร็จแล้ว!\n` +
+                                `Username: ${foundAccount.username}\n` +
+                                `ตอนนี้คุณสามารถใช้ Member Card ผ่าน LINE ได้เลย`
                         }]);
+                    } catch (msgError) {
+                        console.error('Error sending LINE message:', msgError);
                     }
-                } else {
-                    showError(result.error || 'เกิดข้อผิดพลาดในการเชื่อมโยงบัญชี');
                 }
                 
             } catch (error) {
                 console.error('Error confirming linking:', error);
-                showError('เกิดข้อผิดพลาดในการเชื่อมโยงบัญชี กรุณาลองใหม่อีกครั้ง');
+                showError(error.message || 'เกิดข้อผิดพลาดในการเชื่อมโยงบัญชี');
             }
             
             showLoading('confirm', false);

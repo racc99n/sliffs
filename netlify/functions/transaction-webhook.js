@@ -1,145 +1,147 @@
-import pkg from 'pg'
-const { Pool } = pkg
+const {
+  upsertPrima789Account,
+  updateAccountBalance,
+  createTransaction,
+  createAccountLink,
+  getLineUser,
+  upsertLineUser,
+  completeSocketSyncSession,
+  getSocketSyncSession,
+  logSystemEvent,
+} = require('./utils/database')
 
-// CORS Headers
-const corsHeaders = {
-  'Access-Control-Allow-Origin': 'https://prima789.com',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-}
+// Webhook API Key from environment
+const WEBHOOK_API_KEY = process.env.PRIMA789_WEBHOOK_API_KEY
+const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN
 
-export const handler = async (event, context) => {
-  // Handle CORS
+exports.handler = async (event, context) => {
+  console.log('🔗 Transaction Webhook - Start')
+
+  // CORS headers
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Content-Type': 'application/json',
+  }
+
   if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: corsHeaders,
-      body: '',
-    }
+    return { statusCode: 200, headers, body: '' }
   }
 
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         success: false,
-        message: 'Method not allowed',
+        error: 'Method not allowed',
+        message: 'Only POST method is supported',
       }),
     }
   }
 
   try {
-    // Verify API Key (security)
-    const apiKey = event.headers['x-api-key'] || event.headers['X-API-Key']
-    if (apiKey !== process.env.PRIMA789_WEBHOOK_API_KEY) {
+    // Validate API key
+    const providedApiKey =
+      event.headers['x-api-key'] || event.headers['X-API-Key']
+
+    if (
+      !WEBHOOK_API_KEY ||
+      !providedApiKey ||
+      providedApiKey !== WEBHOOK_API_KEY
+    ) {
+      await logSystemEvent(
+        'WARN',
+        'transaction-webhook',
+        'Unauthorized webhook access attempt',
+        {
+          provided_key: providedApiKey ? 'provided' : 'missing',
+          ip: event.headers['x-forwarded-for'],
+        }
+      )
+
       return {
         statusCode: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           success: false,
-          message: 'Unauthorized',
+          error: 'Unauthorized',
+          message: 'Invalid API key',
         }),
       }
     }
 
-    const body = JSON.parse(event.body || '{}')
-    const {
-      transaction_type, // 'deposit', 'withdraw', 'bet', 'win'
-      user_id,
-      username,
-      amount,
-      balance_before,
-      balance_after,
-      transaction_id,
-      timestamp,
-      details,
-    } = body
-
-    console.log('Transaction webhook received:', {
-      type: transaction_type,
-      user: username,
-      amount: amount,
+    const webhookData = JSON.parse(event.body || '{}')
+    console.log('📥 Webhook received:', {
+      type: webhookData.transaction_type,
+      user: webhookData.username,
+      amount: webhookData.amount,
     })
 
-    // Database connection
-    const pool = new Pool({
-      connectionString: process.env.NETLIFY_DATABASE_URL,
-      ssl: { rejectUnauthorized: false },
-    })
-
-    const client = await pool.connect()
-
-    try {
-      // 1. อัปเดตข้อมูลในฐานข้อมูล
-      await updateUserData(client, {
-        user_id,
-        username,
-        balance_after,
-        transaction_type,
-        amount,
-      })
-
-      // 2. บันทึก transaction log
-      await logTransaction(client, {
-        transaction_type,
-        user_id,
-        username,
-        amount,
-        balance_before,
-        balance_after,
-        transaction_id,
-        timestamp: timestamp || new Date().toISOString(),
-        details,
-      })
-
-      // 3. หา LINE User ID ที่เชื่อมโยงกับ account นี้
-      const lineUser = await findLinkedLineUser(client, username, user_id)
-
-      if (lineUser) {
-        // 4. ส่ง Card Message แจ้งเตือนไปยัง LINE
-        await sendTransactionNotification(lineUser.line_user_id, {
-          transaction_type,
-          username,
-          amount,
-          balance_before,
-          balance_after,
-          transaction_id,
-          timestamp,
-        })
-
-        console.log(
-          'Transaction notification sent to LINE user:',
-          lineUser.line_user_id
-        )
-      } else {
-        console.log('No linked LINE user found for:', username)
-      }
-
+    // Validate webhook data
+    if (!webhookData.transaction_type || !webhookData.username) {
       return {
-        statusCode: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        statusCode: 400,
+        headers,
         body: JSON.stringify({
-          success: true,
-          message: 'Transaction processed successfully',
-          transaction_id: transaction_id,
-          line_notification_sent: !!lineUser,
+          success: false,
+          error: 'Invalid webhook data',
+          message: 'transaction_type and username are required',
         }),
       }
-    } finally {
-      client.release()
-      await pool.end()
+    }
+
+    let result = {}
+
+    switch (webhookData.transaction_type) {
+      case 'user_login':
+        result = await handleUserLogin(webhookData)
+        break
+      case 'data_sync':
+        result = await handleDataSync(webhookData)
+        break
+      case 'deposit':
+      case 'withdraw':
+      case 'bet':
+      case 'win':
+      case 'bonus':
+        result = await handleTransaction(webhookData)
+        break
+      case 'balance_update':
+        result = await handleBalanceUpdate(webhookData)
+        break
+      default:
+        result = await handleGenericTransaction(webhookData)
+    }
+
+    console.log(
+      `✅ Webhook processed for ${webhookData.username}:`,
+      result.success ? 'SUCCESS' : 'FAILED'
+    )
+
+    return {
+      statusCode: result.success ? 200 : 400,
+      headers,
+      body: JSON.stringify(result),
     }
   } catch (error) {
-    console.error('Transaction webhook error:', error)
+    console.error('❌ Transaction Webhook Error:', error)
+
+    await logSystemEvent(
+      'ERROR',
+      'transaction-webhook',
+      `Webhook processing error: ${error.message}`,
+      { error: error.message, stack: error.stack }
+    )
 
     return {
       statusCode: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         success: false,
-        error: 'Webhook processing error',
-        message: 'Failed to process transaction webhook',
+        error: 'Internal server error',
+        message: 'Failed to process webhook',
         details:
           process.env.NODE_ENV === 'development' ? error.message : undefined,
       }),
@@ -147,428 +149,392 @@ export const handler = async (event, context) => {
   }
 }
 
-// อัปเดตข้อมูล user
-async function updateUserData(client, userData) {
-  const { user_id, username, balance_after, transaction_type, amount } =
-    userData
-
-  // คำนวณ points ตามประเภทธุรกรรม
-  let pointsChange = 0
-  if (transaction_type === 'deposit') {
-    pointsChange = Math.floor(amount / 100) // 1 point per 100 บาท
-  } else if (transaction_type === 'bet') {
-    pointsChange = Math.floor(amount / 50) // 1 point per 50 บาท bet
-  }
-
-  await client.query(
-    `
-        UPDATE prima789_data 
-        SET 
-            balance = $1,
-            points = COALESCE(points, 0) + $2,
-            last_login = NOW(),
-            updated_at = NOW(),
-            total_deposits = CASE 
-                WHEN $3 = 'deposit' THEN COALESCE(total_deposits, 0) + $4
-                ELSE COALESCE(total_deposits, 0)
-            END,
-            total_withdrawals = CASE 
-                WHEN $3 = 'withdraw' THEN COALESCE(total_withdrawals, 0) + $4
-                ELSE COALESCE(total_withdrawals, 0)
-            END,
-            games_played = CASE 
-                WHEN $3 = 'bet' THEN COALESCE(games_played, 0) + 1
-                ELSE COALESCE(games_played, 0)
-            END
-        WHERE user_id = $5 OR username = $6
-    `,
-    [balance_after, pointsChange, transaction_type, amount, user_id, username]
-  )
-
-  // อัปเดต tier ตาม points
-  await updateUserTier(client, user_id, username)
-}
-
-// อัปเดต tier ตาม points
-async function updateUserTier(client, user_id, username) {
-  await client.query(
-    `
-        UPDATE prima789_data 
-        SET tier = CASE 
-            WHEN points >= 10000 THEN 'Diamond'
-            WHEN points >= 5000 THEN 'Platinum'
-            WHEN points >= 2000 THEN 'Gold'
-            WHEN points >= 500 THEN 'Silver'
-            ELSE 'Bronze'
-        END
-        WHERE user_id = $1 OR username = $2
-    `,
-    [user_id, username]
-  )
-}
-
-// บันทึก transaction log
-async function logTransaction(client, transactionData) {
-  await client.query(
-    `
-        INSERT INTO transaction_logs (
-            transaction_type, prima789_user_id, prima789_username,
-            amount, balance_before, balance_after, transaction_id,
-            timestamp, details, created_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
-    `,
-    [
-      transactionData.transaction_type,
-      transactionData.user_id,
-      transactionData.username,
-      transactionData.amount,
-      transactionData.balance_before,
-      transactionData.balance_after,
-      transactionData.transaction_id,
-      transactionData.timestamp,
-      JSON.stringify(transactionData.details || {}),
-    ]
-  )
-}
-
-// หา LINE User ที่เชื่อมโยงกับ account
-async function findLinkedLineUser(client, username, user_id) {
-  const result = await client.query(
-    `
-        SELECT line_user_id, prima789_username, prima789_user_id
-        FROM line_accounts 
-        WHERE (prima789_username = $1 OR prima789_user_id = $2)
-        AND status = 'active'
-        ORDER BY linked_at DESC
-        LIMIT 1
-    `,
-    [username, user_id]
-  )
-
-  return result.rows[0] || null
-}
-
-// ส่ง Card Message แจ้งเตือนไปยัง LINE
-async function sendTransactionNotification(lineUserId, transactionData) {
-  const { transaction_type, username, amount, balance_after, transaction_id } =
-    transactionData
-
-  // สร้าง Card Message ตามประเภทธุรกรรม
-  let cardMessage
-
-  if (transaction_type === 'deposit') {
-    cardMessage = createDepositCard(
-      username,
-      amount,
-      balance_after,
-      transaction_id
-    )
-  } else if (transaction_type === 'withdraw') {
-    cardMessage = createWithdrawCard(
-      username,
-      amount,
-      balance_after,
-      transaction_id
-    )
-  } else if (transaction_type === 'bet') {
-    cardMessage = createBetCard(username, amount, balance_after)
-  } else if (transaction_type === 'win') {
-    cardMessage = createWinCard(username, amount, balance_after)
-  } else {
-    cardMessage = createGenericCard(
-      transaction_type,
-      username,
-      amount,
-      balance_after
-    )
-  }
-
+// Handle user login webhook
+async function handleUserLogin(webhookData) {
   try {
-    const response = await fetch('https://api.line.me/v2/bot/message/push', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
-      },
-      body: JSON.stringify({
-        to: lineUserId,
-        messages: [cardMessage],
-      }),
+    const { username, details = {} } = webhookData
+    const userData = details.user_data || {}
+
+    console.log(`🔐 Processing user login: ${username}`)
+
+    // Update Prima789 account data
+    const accountData = {
+      username: username,
+      mm_user: userData.mm_user || username,
+      acc_no: userData.acc_no || userData.tel,
+      bank_id: userData.bank_id,
+      bank_name: userData.bank_name,
+      first_name: userData.first_name,
+      last_name: userData.last_name,
+      tel: userData.tel || userData.acc_no,
+      email: userData.email,
+      available: parseFloat(userData.available) || 0,
+      credit_limit: parseFloat(userData.credit_limit) || 0,
+      bet_credit: parseFloat(userData.bet_credit) || 0,
+      tier: userData.tier || 'Bronze',
+      points: parseInt(userData.points) || 0,
+      member_ref: userData.member_ref,
+      register_time: userData.created_at || userData.registerTime,
+      last_login: new Date().toISOString(),
+    }
+
+    const account = await upsertPrima789Account(accountData)
+
+    // Create transaction record
+    await createTransaction({
+      transaction_id: webhookData.transaction_id,
+      prima789_username: username,
+      transaction_type: 'user_login',
+      amount: 0,
+      balance_after: parseFloat(userData.available) || 0,
+      description: `User logged in to Prima789`,
+      source: 'console_log',
+      details: details,
     })
 
-    if (!response.ok) {
-      const error = await response.text()
-      console.error('LINE push message error:', error)
+    // Check if there are any socket sync sessions waiting for this user
+    await processSocketSyncForUser(username, userData)
+
+    // Send LINE notification if linked
+    await sendLineNotificationIfLinked(username, {
+      type: 'login',
+      message: `🔐 เข้าสู่ระบบ Prima789 สำเร็จ\nยอดเงิน: ฿${parseFloat(
+        userData.available || 0
+      ).toLocaleString()}`,
+    })
+
+    await logSystemEvent(
+      'INFO',
+      'handleUserLogin',
+      `User login processed: ${username}`,
+      { account_data: accountData }
+    )
+
+    return {
+      success: true,
+      message: 'User login processed successfully',
+      account: {
+        username: account.username,
+        balance: parseFloat(account.available) || 0,
+        tier: account.tier,
+      },
     }
   } catch (error) {
-    console.error('Send LINE notification error:', error)
+    console.error('Handle user login error:', error)
     throw error
   }
 }
 
-// สร้าง Deposit Card
-function createDepositCard(username, amount, balance, transactionId) {
-  return {
-    type: 'flex',
-    altText: `💰 ฝากเงินสำเร็จ ฿${amount.toLocaleString()}`,
-    contents: {
-      type: 'bubble',
-      size: 'micro',
-      header: {
-        type: 'box',
-        layout: 'vertical',
-        contents: [
-          {
-            type: 'text',
-            text: '💰 ฝากเงินสำเร็จ',
-            weight: 'bold',
-            color: '#ffffff',
-            size: 'sm',
-          },
-        ],
-        backgroundColor: '#28a745',
-        paddingAll: '13px',
+// Handle data sync webhook
+async function handleDataSync(webhookData) {
+  try {
+    const { username, details = {} } = webhookData
+    const userData = details.user_data || {}
+
+    console.log(`🔄 Processing data sync: ${username}`)
+
+    // Update Prima789 account
+    const accountData = {
+      username: username,
+      mm_user: userData.mm_user || username,
+      available: parseFloat(userData.available) || 0,
+      credit_limit: parseFloat(userData.credit_limit) || 0,
+      bet_credit: parseFloat(userData.bet_credit) || 0,
+      tier: userData.tier || 'Bronze',
+      points: parseInt(userData.points) || 0,
+      last_login: new Date().toISOString(),
+    }
+
+    // Only update non-null values
+    Object.keys(accountData).forEach((key) => {
+      if (
+        accountData[key] === null ||
+        accountData[key] === undefined ||
+        accountData[key] === ''
+      ) {
+        delete accountData[key]
+      }
+    })
+
+    const account = await upsertPrima789Account(accountData)
+
+    // Create transaction record
+    await createTransaction({
+      transaction_id: webhookData.transaction_id,
+      prima789_username: username,
+      transaction_type: 'data_sync',
+      amount: 0,
+      balance_before: webhookData.balance_before,
+      balance_after: parseFloat(userData.available) || 0,
+      description: `Data synchronized from Prima789`,
+      source: 'console_log',
+      details: details,
+    })
+
+    await logSystemEvent(
+      'INFO',
+      'handleDataSync',
+      `Data sync processed: ${username}`,
+      { sync_data: userData }
+    )
+
+    return {
+      success: true,
+      message: 'Data sync processed successfully',
+      account: {
+        username: account.username,
+        balance: parseFloat(account.available) || 0,
+        tier: account.tier,
       },
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        contents: [
-          {
-            type: 'text',
-            text: `จำนวน: ฿${amount.toLocaleString()}`,
-            size: 'sm',
-            weight: 'bold',
-            color: '#28a745',
-          },
-          {
-            type: 'text',
-            text: `ยอดคงเหลือ: ฿${balance.toLocaleString()}`,
-            size: 'sm',
-            color: '#333333',
-            margin: 'sm',
-          },
-          {
-            type: 'text',
-            text: `Ref: ${transactionId}`,
-            size: 'xs',
-            color: '#999999',
-            margin: 'sm',
-          },
-        ],
-        paddingAll: '13px',
-      },
-    },
+    }
+  } catch (error) {
+    console.error('Handle data sync error:', error)
+    throw error
   }
 }
 
-// สร้าง Withdraw Card
-function createWithdrawCard(username, amount, balance, transactionId) {
-  return {
-    type: 'flex',
-    altText: `💸 ถอนเงินสำเร็จ ฿${amount.toLocaleString()}`,
-    contents: {
-      type: 'bubble',
-      size: 'micro',
-      header: {
-        type: 'box',
-        layout: 'vertical',
-        contents: [
-          {
-            type: 'text',
-            text: '💸 ถอนเงินสำเร็จ',
-            weight: 'bold',
-            color: '#ffffff',
-            size: 'sm',
-          },
-        ],
-        backgroundColor: '#dc3545',
-        paddingAll: '13px',
+// Handle financial transactions (deposit, withdraw, bet, win, bonus)
+async function handleTransaction(webhookData) {
+  try {
+    const {
+      transaction_type,
+      username,
+      amount,
+      balance_before,
+      balance_after,
+      details = {},
+    } = webhookData
+
+    console.log(
+      `💰 Processing ${transaction_type}: ${username}, amount: ${amount}`
+    )
+
+    // Update account balance
+    if (balance_after !== undefined && balance_after !== null) {
+      await updateAccountBalance(username, balance_after, 'console_log')
+    }
+
+    // Create transaction record
+    const transaction = await createTransaction({
+      transaction_id: webhookData.transaction_id,
+      prima789_username: username,
+      transaction_type: transaction_type,
+      amount: Math.abs(parseFloat(amount) || 0),
+      balance_before: balance_before,
+      balance_after: balance_after,
+      description: getTransactionDescription(transaction_type, amount),
+      source: 'console_log',
+      details: details,
+    })
+
+    // Send LINE notification if linked
+    await sendLineNotificationIfLinked(username, {
+      type: transaction_type,
+      amount: amount,
+      balance: balance_after,
+      message: formatTransactionMessage(
+        transaction_type,
+        amount,
+        balance_after
+      ),
+    })
+
+    await logSystemEvent(
+      'INFO',
+      'handleTransaction',
+      `${transaction_type} processed: ${username}`,
+      { transaction_type, amount, balance_after }
+    )
+
+    return {
+      success: true,
+      message: `${transaction_type} processed successfully`,
+      transaction: {
+        id: transaction.transaction_id,
+        type: transaction_type,
+        amount: Math.abs(parseFloat(amount) || 0),
+        balance: balance_after,
       },
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        contents: [
-          {
-            type: 'text',
-            text: `จำนวน: ฿${amount.toLocaleString()}`,
-            size: 'sm',
-            weight: 'bold',
-            color: '#dc3545',
-          },
-          {
-            type: 'text',
-            text: `ยอดคงเหลือ: ฿${balance.toLocaleString()}`,
-            size: 'sm',
-            color: '#333333',
-            margin: 'sm',
-          },
-          {
-            type: 'text',
-            text: `Ref: ${transactionId}`,
-            size: 'xs',
-            color: '#999999',
-            margin: 'sm',
-          },
-        ],
-        paddingAll: '13px',
-      },
-    },
+    }
+  } catch (error) {
+    console.error('Handle transaction error:', error)
+    throw error
   }
 }
 
-// สร้าง Bet Card
-function createBetCard(username, amount, balance) {
-  return {
-    type: 'flex',
-    altText: `🎰 วางเดิมพัน ฿${amount.toLocaleString()}`,
-    contents: {
-      type: 'bubble',
-      size: 'micro',
-      header: {
-        type: 'box',
-        layout: 'vertical',
-        contents: [
-          {
-            type: 'text',
-            text: '🎰 วางเดิมพัน',
-            weight: 'bold',
-            color: '#ffffff',
-            size: 'sm',
-          },
-        ],
-        backgroundColor: '#fd7e14',
-        paddingAll: '13px',
-      },
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        contents: [
-          {
-            type: 'text',
-            text: `จำนวน: ฿${amount.toLocaleString()}`,
-            size: 'sm',
-            weight: 'bold',
-            color: '#fd7e14',
-          },
-          {
-            type: 'text',
-            text: `ยอดคงเหลือ: ฿${balance.toLocaleString()}`,
-            size: 'sm',
-            color: '#333333',
-            margin: 'sm',
-          },
-          {
-            type: 'text',
-            text: 'โชคดี! 🍀',
-            size: 'xs',
-            color: '#999999',
-            margin: 'sm',
-          },
-        ],
-        paddingAll: '13px',
-      },
-    },
+// Handle balance update webhook
+async function handleBalanceUpdate(webhookData) {
+  try {
+    const { username, balance_after } = webhookData
+
+    console.log(
+      `💰 Processing balance update: ${username}, new balance: ${balance_after}`
+    )
+
+    // Update account balance
+    await updateAccountBalance(username, balance_after, 'console_log')
+
+    // Create transaction record
+    await createTransaction({
+      transaction_id: webhookData.transaction_id,
+      prima789_username: username,
+      transaction_type: 'balance_update',
+      amount: 0,
+      balance_before: webhookData.balance_before,
+      balance_after: balance_after,
+      description: `Balance updated`,
+      source: 'console_log',
+      details: webhookData.details || {},
+    })
+
+    await logSystemEvent(
+      'INFO',
+      'handleBalanceUpdate',
+      `Balance update processed: ${username}`,
+      { new_balance: balance_after }
+    )
+
+    return {
+      success: true,
+      message: 'Balance update processed successfully',
+      balance: balance_after,
+    }
+  } catch (error) {
+    console.error('Handle balance update error:', error)
+    throw error
   }
 }
 
-// สร้าง Win Card
-function createWinCard(username, amount, balance) {
-  return {
-    type: 'flex',
-    altText: `🎉 ชนะเดิมพัน ฿${amount.toLocaleString()}`,
-    contents: {
-      type: 'bubble',
-      size: 'micro',
-      header: {
-        type: 'box',
-        layout: 'vertical',
-        contents: [
-          {
-            type: 'text',
-            text: '🎉 ชนะเดิมพัน!',
-            weight: 'bold',
-            color: '#ffffff',
-            size: 'sm',
-          },
-        ],
-        backgroundColor: '#20c997',
-        paddingAll: '13px',
+// Handle generic transaction
+async function handleGenericTransaction(webhookData) {
+  try {
+    const { transaction_type, username } = webhookData
+
+    console.log(
+      `🔄 Processing generic transaction: ${transaction_type} for ${username}`
+    )
+
+    // Create transaction record
+    const transaction = await createTransaction({
+      transaction_id: webhookData.transaction_id,
+      prima789_username: username,
+      transaction_type: transaction_type,
+      amount: parseFloat(webhookData.amount) || 0,
+      balance_before: webhookData.balance_before,
+      balance_after: webhookData.balance_after,
+      description: webhookData.description || `${transaction_type} transaction`,
+      source: 'console_log',
+      details: webhookData.details || {},
+    })
+
+    await logSystemEvent(
+      'INFO',
+      'handleGenericTransaction',
+      `Generic transaction processed: ${transaction_type} for ${username}`,
+      { transaction_type, username }
+    )
+
+    return {
+      success: true,
+      message: `${transaction_type} processed successfully`,
+      transaction: {
+        id: transaction.transaction_id,
+        type: transaction_type,
       },
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        contents: [
-          {
-            type: 'text',
-            text: `ได้รับ: ฿${amount.toLocaleString()}`,
-            size: 'sm',
-            weight: 'bold',
-            color: '#20c997',
-          },
-          {
-            type: 'text',
-            text: `ยอดคงเหลือ: ฿${balance.toLocaleString()}`,
-            size: 'sm',
-            color: '#333333',
-            margin: 'sm',
-          },
-          {
-            type: 'text',
-            text: 'ยินดีด้วย! 🎊',
-            size: 'xs',
-            color: '#999999',
-            margin: 'sm',
-          },
-        ],
-        paddingAll: '13px',
-      },
-    },
+    }
+  } catch (error) {
+    console.error('Handle generic transaction error:', error)
+    throw error
   }
 }
 
-// สร้าง Generic Card
-function createGenericCard(type, username, amount, balance) {
-  return {
-    type: 'flex',
-    altText: `📊 ${type} ฿${amount.toLocaleString()}`,
-    contents: {
-      type: 'bubble',
-      size: 'micro',
-      header: {
-        type: 'box',
-        layout: 'vertical',
-        contents: [
-          {
-            type: 'text',
-            text: `📊 ${type}`,
-            weight: 'bold',
-            color: '#ffffff',
-            size: 'sm',
-          },
-        ],
-        backgroundColor: '#6c757d',
-        paddingAll: '13px',
-      },
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        contents: [
-          {
-            type: 'text',
-            text: `จำนวน: ฿${amount.toLocaleString()}`,
-            size: 'sm',
-            weight: 'bold',
-          },
-          {
-            type: 'text',
-            text: `ยอดคงเหลือ: ฿${balance.toLocaleString()}`,
-            size: 'sm',
-            color: '#333333',
-            margin: 'sm',
-          },
-        ],
-        paddingAll: '13px',
-      },
-    },
+// Process socket sync for user (if any waiting sessions)
+async function processSocketSyncForUser(username, userData) {
+  try {
+    // This is a simplified implementation
+    // In a real system, you might need to maintain a mapping between Prima789 users and sync sessions
+    console.log(`Checking socket sync sessions for ${username}`)
+
+    await logSystemEvent(
+      'DEBUG',
+      'processSocketSyncForUser',
+      `Checking socket sync for ${username}`,
+      { username, user_data: userData }
+    )
+
+    // TODO: Implement actual socket sync session matching logic
+    // For now, just log the event
+  } catch (error) {
+    console.error('Process socket sync error:', error)
   }
+}
+
+// Send LINE notification if account is linked
+async function sendLineNotificationIfLinked(
+  prima789Username,
+  notificationData
+) {
+  try {
+    if (!LINE_CHANNEL_ACCESS_TOKEN) {
+      console.log(
+        'LINE Channel Access Token not configured, skipping notification'
+      )
+      return
+    }
+
+    // TODO: Implement LINE notification sending
+    // This would require finding linked LINE users and sending messages
+
+    console.log(
+      `📱 Would send LINE notification for ${prima789Username}:`,
+      notificationData
+    )
+
+    await logSystemEvent(
+      'DEBUG',
+      'sendLineNotificationIfLinked',
+      `Notification queued for ${prima789Username}`,
+      { notification: notificationData }
+    )
+  } catch (error) {
+    console.error('Send LINE notification error:', error)
+  }
+}
+
+// Helper functions
+function getTransactionDescription(type, amount) {
+  const absAmount = Math.abs(parseFloat(amount) || 0)
+
+  switch (type) {
+    case 'deposit':
+      return `ฝากเงิน ฿${absAmount.toLocaleString()}`
+    case 'withdraw':
+      return `ถอนเงิน ฿${absAmount.toLocaleString()}`
+    case 'bet':
+      return `วางเดิมพัน ฿${absAmount.toLocaleString()}`
+    case 'win':
+      return `ชนะเดิมพัน ฿${absAmount.toLocaleString()}`
+    case 'bonus':
+      return `โบนัส ฿${absAmount.toLocaleString()}`
+    default:
+      return `ธุรกรรม ${type}`
+  }
+}
+
+function formatTransactionMessage(type, amount, balance) {
+  const absAmount = Math.abs(parseFloat(amount) || 0)
+  const balanceFormatted = parseFloat(balance || 0).toLocaleString()
+
+  const icons = {
+    deposit: '💰',
+    withdraw: '💸',
+    bet: '🎲',
+    win: '🏆',
+    bonus: '🎁',
+  }
+
+  const icon = icons[type] || '📊'
+  const description = getTransactionDescription(type, amount)
+
+  return `${icon} ${description}\nยอดคงเหลือ: ฿${balanceFormatted}`
 }

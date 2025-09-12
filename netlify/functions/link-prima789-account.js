@@ -1,212 +1,147 @@
-import pkg from 'pg'
-const { Pool } = pkg
+const {
+  upsertLineUser,
+  searchPrima789Account,
+  getPrima789Account,
+  createAccountLink,
+  createSocketSyncSession,
+  logSystemEvent,
+  createTransaction,
+} = require('./utils/database')
 
-// CORS Headers
-const corsHeaders = {
-  'Access-Control-Allow-Origin': 'https://prima789.com',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-}
+exports.handler = async (event, context) => {
+  console.log('🔗 Link Prima789 Account - Start')
 
-export const handler = async (event, context) => {
-  // Handle CORS
+  // CORS headers
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Content-Type': 'application/json',
+  }
+
   if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: corsHeaders,
-      body: '',
-    }
+    return { statusCode: 200, headers, body: '' }
   }
 
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         success: false,
-        message: 'Method not allowed',
+        error: 'Method not allowed',
+        message: 'Only POST method is supported',
       }),
     }
   }
 
   try {
-    const body = JSON.parse(event.body || '{}')
+    const requestData = JSON.parse(event.body || '{}')
     const {
-      prima789Username,
-      prima789UserId,
-      userData,
-      source = 'website',
-      timestamp,
-    } = body
+      lineUserId,
+      userProfile,
+      syncMethod,
+      username,
+      prima789AccountData,
+    } = requestData
 
-    // Validate required fields
-    if (!prima789Username || !userData) {
+    // Validate required data
+    if (!lineUserId || !userProfile) {
       return {
         statusCode: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           success: false,
-          message: 'prima789Username and userData are required',
+          error: 'Missing required data',
+          message: 'lineUserId and userProfile are required',
         }),
       }
     }
 
-    console.log('Linking Prima789 account:', {
-      username: prima789Username,
-      userId: prima789UserId,
-      source: source,
-    })
+    console.log(
+      `Processing account linking for ${lineUserId} with method: ${syncMethod}`
+    )
 
-    // Database connection
-    const pool = new Pool({
-      connectionString: process.env.NETLIFY_DATABASE_URL,
-      ssl: { rejectUnauthorized: false },
-    })
+    // Upsert LINE user first
+    await upsertLineUser(userProfile)
 
-    const client = await pool.connect()
+    let result = {}
 
-    try {
-      // 1. ตรวจสอบว่ามี LINE account ที่เชื่อมโยงกับ username นี้แล้วหรือไม่
-      const existingLinkQuery = `
-                SELECT la.*, pd.balance, pd.points, pd.tier
-                FROM line_accounts la
-                LEFT JOIN prima789_data pd ON la.prima789_user_id = pd.user_id
-                WHERE la.prima789_username = $1 AND la.status = 'active'
-                ORDER BY la.linked_at DESC
-                LIMIT 1
-            `
-
-      const existingLinkResult = await client.query(existingLinkQuery, [
-        prima789Username,
-      ])
-      let isNewLinking = false
-      let lineUserId = null
-
-      if (existingLinkResult.rows.length > 0) {
-        // มีการเชื่อมโยงอยู่แล้ว - อัปเดตข้อมูล
-        const existingLink = existingLinkResult.rows[0]
-        lineUserId = existingLink.line_user_id
-
-        console.log('Updating existing link for:', prima789Username)
-
-        // อัปเดต last_sync_at
-        await client.query(
-          `
-                    UPDATE line_accounts 
-                    SET last_sync_at = NOW(), sync_status = 'success'
-                    WHERE id = $1
-                `,
-          [existingLink.id]
-        )
-      } else {
-        // ไม่มีการเชื่อมโยง - รอ LINE user มาเชื่อมโยง
-        console.log('No existing LINE linking found for:', prima789Username)
-        isNewLinking = false // จะเป็น true เมื่อมี LINE user มาเชื่อมโยงจริง
-      }
-
-      // 2. อัปเดต/สร้างข้อมูลใน prima789_data
-      const upsertDataQuery = `
-                INSERT INTO prima789_data (
-                    user_id, username, email, balance, points, tier,
-                    total_deposits, total_withdrawals, games_played, 
-                    last_login, created_at, updated_at
-                ) VALUES (
-                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW()
-                )
-                ON CONFLICT (user_id) 
-                DO UPDATE SET
-                    username = EXCLUDED.username,
-                    email = EXCLUDED.email,
-                    balance = EXCLUDED.balance,
-                    points = EXCLUDED.points,
-                    tier = EXCLUDED.tier,
-                    total_deposits = EXCLUDED.total_deposits,
-                    total_withdrawals = EXCLUDED.total_withdrawals,
-                    games_played = EXCLUDED.games_played,
-                    last_login = EXCLUDED.last_login,
-                    updated_at = NOW()
-                RETURNING *
-            `
-
-      const userId = prima789UserId || generateUserId(prima789Username)
-
-      const dataResult = await client.query(upsertDataQuery, [
-        userId,
-        userData.username || prima789Username,
-        userData.email,
-        parseFloat(userData.balance) || 0,
-        parseInt(userData.points) || 0,
-        userData.tier || 'Bronze',
-        parseFloat(userData.total_deposits) || 0,
-        parseFloat(userData.total_withdrawals) || 0,
-        parseInt(userData.games_played) || 0,
-        userData.last_login ? new Date(userData.last_login) : new Date(),
-        userData.created_at ? new Date(userData.created_at) : new Date(),
-      ])
-
-      // 3. บันทึก sync log
-      await client.query(
-        `
-                INSERT INTO sync_logs (
-                    line_user_id, prima789_user_id, sync_type, 
-                    status, details, created_at
-                ) VALUES ($1, $2, $3, $4, $5, NOW())
-            `,
-        [
-          lineUserId, // อาจเป็น null ถ้ายังไม่มี LINE user เชื่อมโยง
-          userId,
-          'website_sync',
-          'success',
-          JSON.stringify({
-            source: source,
-            userData: userData,
-            timestamp: timestamp,
-            hasLineLink: !!lineUserId,
-          }),
-        ]
-      )
-
-      // 4. ถ้ามี LINE account เชื่อมโยงอยู่ ให้ส่งการแจ้งเตือนไปยัง LINE
-      if (lineUserId) {
-        try {
-          await sendLineNotification(lineUserId, {
-            type: 'data_updated',
-            balance: dataResult.rows[0].balance,
-            points: dataResult.rows[0].points,
-            tier: dataResult.rows[0].tier,
-          })
-        } catch (notifyError) {
-          console.error('Failed to send LINE notification:', notifyError)
-          // ไม่ให้ error นี้ทำให้ response fail
+    switch (syncMethod) {
+      case 'auto':
+        result = await handleAutoSync(lineUserId, userProfile)
+        break
+      case 'manual':
+        if (!username) {
+          return {
+            statusCode: 400,
+            headers,
+            body: JSON.stringify({
+              success: false,
+              error: 'Username is required for manual sync',
+            }),
+          }
         }
-      }
+        result = await handleManualSync(lineUserId, userProfile, username)
+        break
+      case 'socket':
+        result = await handleSocketSync(lineUserId, userProfile)
+        break
+      case 'direct':
+        if (!prima789AccountData) {
+          return {
+            statusCode: 400,
+            headers,
+            body: JSON.stringify({
+              success: false,
+              error: 'Prima789 account data is required for direct sync',
+            }),
+          }
+        }
+        result = await handleDirectSync(
+          lineUserId,
+          userProfile,
+          prima789AccountData
+        )
+        break
+      default:
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            error: 'Invalid sync method',
+            message: 'Supported methods: auto, manual, socket, direct',
+          }),
+        }
+    }
 
-      return {
-        statusCode: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          success: true,
-          newLinking: isNewLinking,
-          hasLineLink: !!lineUserId,
-          data: dataResult.rows[0],
-          message: lineUserId
-            ? 'Data synced successfully with linked LINE account'
-            : 'Data saved successfully, waiting for LINE account linking',
-        }),
-      }
-    } finally {
-      client.release()
-      await pool.end()
+    console.log(
+      `✅ Account linking result for ${lineUserId}:`,
+      result.success ? 'SUCCESS' : 'FAILED'
+    )
+
+    return {
+      statusCode: result.success ? 200 : 400,
+      headers,
+      body: JSON.stringify(result),
     }
   } catch (error) {
-    console.error('Link Prima789 account error:', error)
+    console.error('❌ Link Prima789 Account Error:', error)
+
+    await logSystemEvent(
+      'ERROR',
+      'link-prima789-account',
+      `Error linking account: ${error.message}`,
+      { error: error.message, stack: error.stack }
+    )
 
     return {
       statusCode: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         success: false,
-        error: 'Database error',
+        error: 'Internal server error',
         message: 'Failed to link Prima789 account',
         details:
           process.env.NODE_ENV === 'development' ? error.message : undefined,
@@ -215,96 +150,259 @@ export const handler = async (event, context) => {
   }
 }
 
-// Generate user ID from username
-function generateUserId(username) {
-  // สร้าง user ID จาก username (ในทางปฏิบัติควรใช้ ID จริงจาก Prima789)
-  return (
-    username.toLowerCase().replace(/[^a-z0-9]/g, '') +
-    '_' +
-    Date.now().toString(36)
-  )
-}
-
-// Send LINE notification
-async function sendLineNotification(lineUserId, data) {
+// Handle automatic sync based on LINE profile data
+async function handleAutoSync(lineUserId, userProfile) {
   try {
-    if (!process.env.LINE_CHANNEL_ACCESS_TOKEN) {
-      console.log('LINE access token not configured')
-      return
+    console.log(`Auto sync for ${lineUserId}: searching by display name`)
+
+    const searchCriteria = {
+      displayName: userProfile.displayName,
     }
 
-    const message = {
-      type: 'flex',
-      altText: 'ข้อมูลบัญชีได้รับการอัปเดต',
-      contents: {
-        type: 'bubble',
-        size: 'micro',
-        header: {
-          type: 'box',
-          layout: 'vertical',
-          contents: [
-            {
-              type: 'text',
-              text: '🔄 ข้อมูลอัปเดต',
-              weight: 'bold',
-              color: '#ffffff',
-              size: 'sm',
-            },
-          ],
-          backgroundColor: '#4CAF50',
-          paddingAll: '12px',
-        },
-        body: {
-          type: 'box',
-          layout: 'vertical',
-          contents: [
-            {
-              type: 'text',
-              text: `ยอดเงิน: ฿${data.balance?.toLocaleString() || '0'}`,
-              size: 'sm',
-              weight: 'bold',
-              color: '#333333',
-            },
-            {
-              type: 'text',
-              text: `คะแนน: ${data.points?.toLocaleString() || '0'} pts`,
-              size: 'xs',
-              color: '#666666',
-              margin: 'sm',
-            },
-            {
-              type: 'text',
-              text: `ระดับ: ${data.tier || 'Bronze'}`,
-              size: 'xs',
-              color: '#666666',
-              margin: 'sm',
-            },
-          ],
-          paddingAll: '12px',
-        },
-      },
+    const accounts = await searchPrima789Account(searchCriteria)
+
+    if (accounts.length === 0) {
+      await logSystemEvent(
+        'INFO',
+        'handleAutoSync',
+        `No Prima789 accounts found for ${userProfile.displayName}`,
+        { search_criteria: searchCriteria },
+        lineUserId
+      )
+
+      return {
+        success: false,
+        accountFound: false,
+        message:
+          'ไม่พบบัญชี Prima789 ที่ตรงกับชื่อในโปรไฟล์ LINE กรุณาใช้วิธีกรอกข้อมูลด้วยตนเอง',
+      }
     }
 
-    const response = await fetch('https://api.line.me/v2/bot/message/push', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
+    // If multiple accounts found, return the most recently active one
+    const account = accounts[0]
+
+    // Create account link
+    await createAccountLink(lineUserId, account.username, 'auto')
+
+    // Create linking transaction record
+    await createTransaction({
+      transaction_id: `link_auto_${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 5)}`,
+      line_user_id: lineUserId,
+      prima789_username: account.username,
+      transaction_type: 'account_link',
+      amount: 0,
+      balance_after: parseFloat(account.available) || 0,
+      description: `Account linked automatically via display name match`,
+      source: 'auto_link',
+      details: {
+        link_method: 'auto',
+        search_criteria: searchCriteria,
+        user_profile: userProfile,
       },
-      body: JSON.stringify({
-        to: lineUserId,
-        messages: [message],
-      }),
     })
 
-    if (!response.ok) {
-      const error = await response.text()
-      console.error('LINE push message error:', error)
-    } else {
-      console.log('LINE notification sent successfully to:', lineUserId)
+    await logSystemEvent(
+      'INFO',
+      'handleAutoSync',
+      `Auto sync successful: ${lineUserId} -> ${account.username}`,
+      { prima789_account: account.username, method: 'auto' },
+      lineUserId
+    )
+
+    return {
+      success: true,
+      accountFound: true,
+      account: {
+        username: account.username,
+        display_name:
+          account.first_name && account.last_name
+            ? `${account.first_name} ${account.last_name}`
+            : account.username,
+        balance: parseFloat(account.available) || 0,
+        tier: account.tier || 'Bronze',
+        points: parseInt(account.points) || 0,
+        total_transactions: parseInt(account.total_transactions) || 0,
+      },
+      message: 'เชื่อมโยงบัญชีสำเร็จ',
     }
   } catch (error) {
-    console.error('Send LINE notification error:', error)
+    console.error('Auto sync error:', error)
+    throw error
+  }
+}
+
+// Handle manual sync with username
+async function handleManualSync(lineUserId, userProfile, username) {
+  try {
+    console.log(`Manual sync for ${lineUserId}: searching username ${username}`)
+
+    const account = await getPrima789Account(username)
+
+    if (!account) {
+      await logSystemEvent(
+        'INFO',
+        'handleManualSync',
+        `Prima789 account not found: ${username}`,
+        { username: username },
+        lineUserId
+      )
+
+      return {
+        success: false,
+        accountFound: false,
+        message: `ไม่พบบัญชี Prima789 ที่มี username: ${username}`,
+      }
+    }
+
+    // Create account link
+    await createAccountLink(lineUserId, account.username, 'manual')
+
+    // Create linking transaction record
+    await createTransaction({
+      transaction_id: `link_manual_${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 5)}`,
+      line_user_id: lineUserId,
+      prima789_username: account.username,
+      transaction_type: 'account_link',
+      amount: 0,
+      balance_after: parseFloat(account.available) || 0,
+      description: `Account linked manually via username: ${username}`,
+      source: 'manual_link',
+      details: {
+        link_method: 'manual',
+        input_username: username,
+        user_profile: userProfile,
+      },
+    })
+
+    await logSystemEvent(
+      'INFO',
+      'handleManualSync',
+      `Manual sync successful: ${lineUserId} -> ${account.username}`,
+      {
+        prima789_account: account.username,
+        method: 'manual',
+        input_username: username,
+      },
+      lineUserId
+    )
+
+    return {
+      success: true,
+      accountFound: true,
+      account: {
+        username: account.username,
+        display_name:
+          account.first_name && account.last_name
+            ? `${account.first_name} ${account.last_name}`
+            : account.username,
+        balance: parseFloat(account.available) || 0,
+        tier: account.tier || 'Bronze',
+        points: parseInt(account.points) || 0,
+        total_transactions: parseInt(account.total_transactions) || 0,
+      },
+      message: 'เชื่อมโยงบัญชีสำเร็จ',
+    }
+  } catch (error) {
+    console.error('Manual sync error:', error)
+    throw error
+  }
+}
+
+// Handle socket sync (real-time integration)
+async function handleSocketSync(lineUserId, userProfile) {
+  try {
+    console.log(`Socket sync for ${lineUserId}: creating sync session`)
+
+    const syncSession = await createSocketSyncSession(lineUserId, 10) // 10 minutes expiration
+
+    await logSystemEvent(
+      'INFO',
+      'handleSocketSync',
+      `Socket sync session created: ${syncSession.sync_id}`,
+      { sync_session: syncSession },
+      lineUserId
+    )
+
+    return {
+      success: true,
+      socketReady: true,
+      syncId: syncSession.sync_id,
+      expiresAt: syncSession.expires_at,
+      message: 'กรุณาเข้าสู่ระบบ Prima789.com เพื่อทำการเชื่อมโยงอัตโนมัติ',
+    }
+  } catch (error) {
+    console.error('Socket sync error:', error)
+    throw error
+  }
+}
+
+// Handle direct sync with Prima789 account data
+async function handleDirectSync(lineUserId, userProfile, prima789AccountData) {
+  try {
+    console.log(`Direct sync for ${lineUserId}: using provided account data`)
+
+    const { username } = prima789AccountData
+
+    if (!username) {
+      return {
+        success: false,
+        error: 'Username is required in Prima789 account data',
+      }
+    }
+
+    // Create account link
+    await createAccountLink(lineUserId, username, 'direct')
+
+    // Create linking transaction record
+    await createTransaction({
+      transaction_id: `link_direct_${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 5)}`,
+      line_user_id: lineUserId,
+      prima789_username: username,
+      transaction_type: 'account_link',
+      amount: 0,
+      balance_after: parseFloat(prima789AccountData.available) || 0,
+      description: `Account linked directly with provided data`,
+      source: 'direct_link',
+      details: {
+        link_method: 'direct',
+        prima789_data: prima789AccountData,
+        user_profile: userProfile,
+      },
+    })
+
+    await logSystemEvent(
+      'INFO',
+      'handleDirectSync',
+      `Direct sync successful: ${lineUserId} -> ${username}`,
+      { prima789_account: username, method: 'direct' },
+      lineUserId
+    )
+
+    return {
+      success: true,
+      accountFound: true,
+      account: {
+        username: username,
+        display_name:
+          prima789AccountData.first_name && prima789AccountData.last_name
+            ? `${prima789AccountData.first_name} ${prima789AccountData.last_name}`
+            : username,
+        balance: parseFloat(prima789AccountData.available) || 0,
+        tier: prima789AccountData.tier || 'Bronze',
+        points: parseInt(prima789AccountData.points) || 0,
+        total_transactions:
+          parseInt(prima789AccountData.total_transactions) || 0,
+      },
+      message: 'เชื่อมโยงบัญชีสำเร็จ',
+    }
+  } catch (error) {
+    console.error('Direct sync error:', error)
     throw error
   }
 }

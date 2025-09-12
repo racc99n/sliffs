@@ -1,650 +1,361 @@
-const { Pool } = require('pg')
-
-const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN
+const {
+  checkUserLinking,
+  getPrima789Account,
+  getUserTransactions,
+  getUserStats,
+  logSystemEvent,
+} = require('./utils/database')
 
 exports.handler = async (event, context) => {
   console.log('💰 Balance Inquiry - Start')
-  console.log('HTTP Method:', event.httpMethod)
-  console.log('Request body:', event.body)
 
-  // Handle CORS
+  // CORS headers
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Content-Type': 'application/json',
+  }
+
   if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
-      },
-      body: '',
-    }
+    return { statusCode: 200, headers, body: '' }
   }
-
-  if (event.httpMethod !== 'POST') {
-    return {
-      statusCode: 405,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Method not allowed' }),
-    }
-  }
-
-  let pool
-  let client
 
   try {
-    const { lineUserId, requestType = 'balance' } = JSON.parse(event.body)
+    let lineUserId = null
+    let requestType = 'balance' // 'balance', 'full', 'transactions'
+    let limit = 10
+
+    // Get parameters from query string or request body
+    if (event.httpMethod === 'GET') {
+      lineUserId = event.queryStringParameters?.lineUserId
+      requestType = event.queryStringParameters?.type || 'balance'
+      limit = parseInt(event.queryStringParameters?.limit) || 10
+    } else if (event.httpMethod === 'POST') {
+      const requestData = JSON.parse(event.body || '{}')
+      lineUserId = requestData.lineUserId
+      requestType = requestData.requestType || requestData.type || 'balance'
+      limit = requestData.limit || 10
+    }
 
     if (!lineUserId) {
       return {
         statusCode: 400,
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           success: false,
-          error: 'Missing lineUserId',
+          error: 'LINE User ID is required',
+          message: 'Please provide lineUserId parameter',
         }),
       }
     }
 
-    console.log(`💰 Processing balance inquiry for LINE user: ${lineUserId}`)
-    console.log(`📋 Request type: ${requestType}`)
-
-    // Database connection with detailed logging
-    const connectionString = process.env.NETLIFY_DATABASE_URL
-    if (!connectionString) {
-      console.error('❌ Database URL not found')
-      return {
-        statusCode: 500,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          success: false,
-          error: 'Database configuration error',
-        }),
-      }
-    }
-
-    console.log('🗄️ Connecting to database...')
-    pool = new Pool({
-      connectionString: connectionString,
-      ssl: { rejectUnauthorized: false },
-      connectionTimeoutMillis: 10000,
-      idleTimeoutMillis: 30000,
-    })
-
-    client = await pool.connect()
-    console.log('✅ Database connected successfully')
-
-    // Test database connection
-    const testResult = await client.query('SELECT NOW() as current_time')
-    console.log('🕐 Database time:', testResult.rows[0].current_time)
-
-    // Check if line_accounts table exists and has required columns
-    const tableCheckResult = await client.query(`
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name = 'line_accounts'
-        `)
-
-    const availableColumns = tableCheckResult.rows.map((row) => row.column_name)
-    console.log('📊 Available columns in line_accounts:', availableColumns)
-
-    // Required columns check
-    const requiredColumns = ['line_user_id', 'prima789_user_id', 'username']
-    const missingColumns = requiredColumns.filter(
-      (col) => !availableColumns.includes(col)
+    console.log(
+      `Processing balance inquiry for ${lineUserId}, type: ${requestType}`
     )
 
-    if (missingColumns.length > 0) {
-      console.error('❌ Missing required columns:', missingColumns)
+    // Check if user is linked
+    const linkingInfo = await checkUserLinking(lineUserId)
+
+    if (!linkingInfo) {
       return {
-        statusCode: 500,
-        headers: { 'Content-Type': 'application/json' },
+        statusCode: 404,
+        headers,
         body: JSON.stringify({
           success: false,
-          error: 'Database schema error',
-          message: 'Required columns missing from line_accounts table',
-          details: {
-            missing_columns: missingColumns,
-            available_columns: availableColumns,
-          },
+          error: 'User not found',
+          message: 'LINE user not found in system',
         }),
       }
     }
 
-    // Query user data with dynamic column selection
-    const selectColumns = [
-      'line_user_id',
-      'prima789_user_id',
-      availableColumns.includes('username')
-        ? 'username'
-        : 'prima789_user_id as username',
-      availableColumns.includes('display_name')
-        ? 'display_name'
-        : 'NULL as display_name',
-      availableColumns.includes('balance') ? 'balance' : '0.00 as balance',
-      availableColumns.includes('points') ? 'points' : '0 as points',
-      availableColumns.includes('tier') ? 'tier' : "'Bronze' as tier",
-      availableColumns.includes('status') ? 'status' : "'active' as status",
-      availableColumns.includes('last_sync_at')
-        ? 'last_sync_at'
-        : 'created_at as last_sync_at',
-      availableColumns.includes('updated_at')
-        ? 'updated_at'
-        : 'created_at as updated_at',
-      'created_at',
-    ].join(', ')
+    if (!linkingInfo.is_linked || !linkingInfo.prima789_username) {
+      await logSystemEvent(
+        'INFO',
+        'balance-inquiry',
+        `Balance inquiry for unlinked user: ${lineUserId}`,
+        { is_linked: false },
+        lineUserId
+      )
 
-    const userQuery = `
-            SELECT ${selectColumns}
-            FROM line_accounts 
-            WHERE line_user_id = $1
-        `
-
-    console.log('🔍 Executing user query:', userQuery)
-    console.log('📝 Query params:', [lineUserId])
-
-    const userResult = await client.query(userQuery, [lineUserId])
-    console.log('📊 User query result rows:', userResult.rows.length)
-
-    if (userResult.rows.length === 0) {
-      console.log('❌ No linked account found')
-
-      // Try to send "not linked" message to LINE
-      if (LINE_CHANNEL_ACCESS_TOKEN) {
-        await sendNotLinkedMessage(lineUserId)
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: false,
+          isLinked: false,
+          message:
+            'บัญชียังไม่ได้เชื่อมโยง กรุณาเชื่อมโยงบัญชี Prima789 ก่อนใช้งาน',
+        }),
       }
+    }
+
+    const prima789Username = linkingInfo.prima789_username
+
+    // Get Prima789 account details
+    const account = await getPrima789Account(prima789Username)
+
+    if (!account) {
+      await logSystemEvent(
+        'ERROR',
+        'balance-inquiry',
+        `Prima789 account not found: ${prima789Username}`,
+        { prima789_username: prima789Username },
+        lineUserId
+      )
 
       return {
         statusCode: 404,
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           success: false,
-          error: 'Account not linked',
-          message: 'LINE account is not linked to Prima789 account',
+          error: 'Prima789 account not found',
+          message: 'ไม่พบบัญชี Prima789 ที่เชื่อมโยง',
         }),
       }
     }
 
-    let userData = userResult.rows[0]
-    console.log('✅ Account found:', {
-      lineUserId: userData.line_user_id,
-      username: userData.username,
-      balance: userData.balance,
-    })
+    let responseData = {
+      success: true,
+      isLinked: true,
+      user: {
+        line_user_id: linkingInfo.line_user_id,
+        display_name: linkingInfo.display_name,
+        prima789_username: prima789Username,
+        linked_at: linkingInfo.linked_at,
+        link_method: linkingInfo.link_method,
+      },
+    }
 
-    // Update last_sync_at if column exists
-    if (availableColumns.includes('last_sync_at')) {
-      const updateResult = await client.query(
-        `
-                UPDATE line_accounts 
-                SET last_sync_at = CURRENT_TIMESTAMP,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE line_user_id = $1 
-                RETURNING *
-            `,
-        [lineUserId]
-      )
+    // Basic balance information (always included)
+    responseData.balance = {
+      available: parseFloat(account.available) || 0,
+      credit_limit: parseFloat(account.credit_limit) || 0,
+      bet_credit: parseFloat(account.bet_credit) || 0,
+      tier: account.tier || 'Bronze',
+      points: parseInt(account.points) || 0,
+      last_updated: account.updated_at,
+    }
 
-      if (updateResult.rows.length > 0) {
-        userData = updateResult.rows[0]
-        console.log('🔄 User data updated with new sync time')
+    // Include additional information based on request type
+    if (requestType === 'full') {
+      // Full account information
+      responseData.account = {
+        username: account.username,
+        display_name:
+          account.first_name && account.last_name
+            ? `${account.first_name} ${account.last_name}`
+            : account.username,
+        first_name: account.first_name,
+        last_name: account.last_name,
+        tel: account.tel,
+        email: account.email,
+        bank_name: account.bank_name,
+        bank_id: account.bank_id,
+        acc_no: account.acc_no,
+        total_transactions: parseInt(account.total_transactions) || 0,
+        member_since: account.register_time,
+        last_login: account.last_login,
+        created_at: account.created_at,
+        updated_at: account.updated_at,
+      }
+
+      // Get user statistics
+      const stats = await getUserStats(lineUserId)
+      responseData.statistics = {
+        total_transactions: parseInt(stats.total_transactions) || 0,
+        total_income_transactions:
+          parseInt(stats.total_income_transactions) || 0,
+        total_expense_transactions:
+          parseInt(stats.total_expense_transactions) || 0,
+        total_income: parseFloat(stats.total_income) || 0,
+        total_expenses: parseFloat(stats.total_expenses) || 0,
+        last_transaction_date: stats.last_transaction_date,
       }
     }
 
-    // Get recent transactions (if transaction_logs table exists)
-    let recentTransactions = []
-    try {
-      const transactionsResult = await client.query(
-        `
-                SELECT 
-                    transaction_type,
-                    amount,
-                    balance_before,
-                    balance_after,
-                    details,
-                    timestamp,
-                    created_at
-                FROM transaction_logs 
-                WHERE prima789_user_id = $1 
-                ORDER BY timestamp DESC 
-                LIMIT 10
-            `,
-        [userData.prima789_user_id]
-      )
-
-      recentTransactions = transactionsResult.rows
-      console.log('📈 Recent transactions found:', recentTransactions.length)
-    } catch (transactionError) {
-      console.log(
-        '⚠️ Transaction logs table not found or error:',
-        transactionError.message
-      )
+    if (requestType === 'transactions' || requestType === 'full') {
+      // Recent transactions
+      const transactions = await getUserTransactions(lineUserId, limit)
+      responseData.recent_transactions = transactions.map((tx) => ({
+        transaction_id: tx.transaction_id,
+        transaction_type: tx.transaction_type,
+        amount: parseFloat(tx.amount) || 0,
+        balance_before: parseFloat(tx.balance_before),
+        balance_after: parseFloat(tx.balance_after),
+        description: tx.description,
+        source: tx.source,
+        created_at: tx.created_at,
+        processed_at: tx.processed_at,
+      }))
     }
 
-    // Create and send balance card
-    const cardMessage = createBalanceCard(userData, recentTransactions)
+    // Calculate tier progress
+    responseData.tier_progress = calculateTierProgress(
+      account.tier,
+      account.points
+    )
 
-    if (LINE_CHANNEL_ACCESS_TOKEN) {
-      const cardSent = await sendBalanceCard(lineUserId, cardMessage)
-      console.log('💳 Balance card sent:', cardSent ? 'success' : 'failed')
-    } else {
-      console.log('⚠️ LINE Channel Access Token not configured')
+    // Add formatted display values
+    responseData.display = {
+      balance_formatted: `฿${parseFloat(
+        account.available || 0
+      ).toLocaleString()}`,
+      credit_formatted: `฿${parseFloat(
+        account.credit_limit || 0
+      ).toLocaleString()}`,
+      points_formatted: parseInt(account.points || 0).toLocaleString(),
+      tier_display: getTierDisplayInfo(account.tier),
+      last_updated_relative: getRelativeTime(account.updated_at),
     }
 
-    // Log activity if sync_logs table exists
-    try {
-      await client.query(
-        `
-                INSERT INTO sync_logs (
-                    line_user_id, prima789_user_id, sync_type, 
-                    status, details, created_at
-                ) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
-            `,
-        [
-          lineUserId,
-          userData.prima789_user_id,
-          'balance_inquiry',
-          'success',
-          JSON.stringify({
-            request_type: requestType,
-            balance: userData.balance,
-            points: userData.points,
-            tier: userData.tier,
-          }),
-        ]
-      )
-      console.log('📝 Activity logged successfully')
-    } catch (logError) {
-      console.log('⚠️ Could not log activity:', logError.message)
-    }
+    await logSystemEvent(
+      'INFO',
+      'balance-inquiry',
+      `Balance inquiry successful: ${lineUserId} -> ${prima789Username}`,
+      {
+        request_type: requestType,
+        balance: parseFloat(account.available || 0),
+        tier: account.tier,
+      },
+      lineUserId
+    )
+
+    console.log(
+      `✅ Balance inquiry complete for ${lineUserId}: ฿${parseFloat(
+        account.available || 0
+      ).toLocaleString()}`
+    )
 
     return {
       statusCode: 200,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        success: true,
-        message: 'Balance inquiry completed successfully',
-        data: {
-          line_user_id: userData.line_user_id,
-          username: userData.username,
-          display_name: userData.display_name,
-          balance: userData.balance,
-          points: userData.points,
-          tier: userData.tier,
-          status: userData.status,
-          last_sync_at: userData.last_sync_at,
-          recent_transactions: recentTransactions,
-        },
-        debug_info: {
-          available_columns: availableColumns,
-          database_time: testResult.rows[0].current_time,
-          line_token_configured: !!LINE_CHANNEL_ACCESS_TOKEN,
-        },
-      }),
+      headers,
+      body: JSON.stringify(responseData),
     }
   } catch (error) {
-    console.error('❌ Balance inquiry error:', error)
-    console.error('Error stack:', error.stack)
+    console.error('❌ Balance Inquiry Error:', error)
+
+    await logSystemEvent(
+      'ERROR',
+      'balance-inquiry',
+      `Balance inquiry error: ${error.message}`,
+      { error: error.message, stack: error.stack }
+    )
 
     return {
       statusCode: 500,
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         success: false,
-        error: 'Balance inquiry error',
-        message: 'Failed to process balance inquiry',
+        error: 'Internal server error',
+        message: 'Failed to retrieve balance information',
         details:
-          process.env.NODE_ENV === 'development'
-            ? {
-                error_message: error.message,
-                error_code: error.code,
-                error_detail: error.detail,
-                error_hint: error.hint,
-              }
-            : 'Contact support for assistance',
+          process.env.NODE_ENV === 'development' ? error.message : undefined,
       }),
-    }
-  } finally {
-    // Clean up connections
-    if (client) {
-      try {
-        client.release()
-        console.log('🔄 Database client released')
-      } catch (releaseError) {
-        console.error('Error releasing client:', releaseError)
-      }
-    }
-
-    if (pool) {
-      try {
-        await pool.end()
-        console.log('🔄 Database pool closed')
-      } catch (poolError) {
-        console.error('Error closing pool:', poolError)
-      }
     }
   }
 }
 
-// สร้าง Balance Card Message
-function createBalanceCard(userData, transactions) {
-  const tier = userData.tier || 'Bronze'
-  const tierEmoji = {
-    Bronze: '🥉',
-    Silver: '🥈',
-    Gold: '🥇',
-    Platinum: '💎',
-    Diamond: '💠',
+// Helper functions
+function calculateTierProgress(currentTier, currentPoints) {
+  const tierLevels = {
+    Bronze: { min: 0, max: 1000, next: 'Silver' },
+    Silver: { min: 1000, max: 5000, next: 'Gold' },
+    Gold: { min: 5000, max: 20000, next: 'Platinum' },
+    Platinum: { min: 20000, max: 50000, next: 'Diamond' },
+    Diamond: { min: 50000, max: 100000, next: null },
   }
 
-  // คำนวณ progress bar สำหรับคะแนน
-  const points = parseInt(userData.points) || 0
-  const pointsProgress = Math.min(points / 1000, 1) * 100
-  const progressBar =
-    '▓'.repeat(Math.floor(pointsProgress / 10)) +
-    '▒'.repeat(10 - Math.floor(pointsProgress / 10))
+  const current = tierLevels[currentTier] || tierLevels['Bronze']
+  const points = parseInt(currentPoints) || 0
 
-  // Format ธุรกรรมล่าสุด
-  const recentTransactions =
-    transactions
-      .slice(0, 3)
-      .map((tx) => {
-        const date = new Date(tx.timestamp || tx.created_at).toLocaleDateString(
-          'th-TH',
-          {
-            day: '2-digit',
-            month: '2-digit',
-          }
-        )
-        const amount =
-          parseFloat(tx.amount) >= 0
-            ? `+฿${Math.abs(parseFloat(tx.amount)).toLocaleString()}`
-            : `-฿${Math.abs(parseFloat(tx.amount)).toLocaleString()}`
-        const emoji = parseFloat(tx.amount) >= 0 ? '💰' : '💸'
-        return `${emoji} ${date} ${amount}`
-      })
-      .join('\n') || 'ไม่มีธุรกรรม'
-
-  const balance = parseFloat(userData.balance) || 0
+  const progress = Math.min(
+    (points - current.min) / (current.max - current.min),
+    1
+  )
+  const pointsNeeded = current.next ? Math.max(current.max - points, 0) : 0
 
   return {
-    type: 'flex',
-    altText: `💳 Prima789 Member Card - Balance: ฿${balance.toLocaleString()}`,
-    contents: {
-      type: 'bubble',
-      size: 'giga',
-      header: {
-        type: 'box',
-        layout: 'vertical',
-        backgroundColor: '#1a1a2e',
-        paddingAll: '20px',
-        spacing: 'md',
-        contents: [
-          {
-            type: 'box',
-            layout: 'horizontal',
-            contents: [
-              {
-                type: 'text',
-                text: '💳 PRIMA789',
-                color: '#ffffff',
-                size: 'xl',
-                weight: 'bold',
-                flex: 1,
-              },
-              {
-                type: 'text',
-                text: `${tierEmoji[tier] || '🥉'} ${tier}`,
-                color: '#ffd700',
-                size: 'md',
-                weight: 'bold',
-                align: 'end',
-              },
-            ],
-          },
-          {
-            type: 'text',
-            text: userData.display_name || userData.username || 'Member',
-            color: '#cccccc',
-            size: 'sm',
-          },
-        ],
-      },
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        backgroundColor: '#16213e',
-        paddingAll: '20px',
-        spacing: 'lg',
-        contents: [
-          // ยอดเงินคงเหลือ
-          {
-            type: 'box',
-            layout: 'vertical',
-            backgroundColor: '#0f3460',
-            cornerRadius: 'md',
-            paddingAll: '15px',
-            spacing: 'sm',
-            contents: [
-              {
-                type: 'text',
-                text: '💰 ยอดเงินคงเหลือ',
-                color: '#a0a0a0',
-                size: 'sm',
-              },
-              {
-                type: 'text',
-                text: `฿${balance.toLocaleString()}`,
-                color: '#00ff88',
-                size: 'xxl',
-                weight: 'bold',
-              },
-            ],
-          },
-          // คะแนนสะสม
-          {
-            type: 'box',
-            layout: 'vertical',
-            backgroundColor: '#0f3460',
-            cornerRadius: 'md',
-            paddingAll: '15px',
-            spacing: 'sm',
-            contents: [
-              {
-                type: 'text',
-                text: '🎯 คะแนนสะสม',
-                color: '#a0a0a0',
-                size: 'sm',
-              },
-              {
-                type: 'text',
-                text: `${points.toLocaleString()} pts`,
-                color: '#ffdd44',
-                size: 'xl',
-                weight: 'bold',
-              },
-              {
-                type: 'text',
-                text: progressBar,
-                color: '#666666',
-                size: 'xs',
-              },
-            ],
-          },
-          // ธุรกรรมล่าสุด
-          {
-            type: 'box',
-            layout: 'vertical',
-            backgroundColor: '#0f3460',
-            cornerRadius: 'md',
-            paddingAll: '15px',
-            spacing: 'sm',
-            contents: [
-              {
-                type: 'text',
-                text: '📊 ธุรกรรมล่าสุด',
-                color: '#a0a0a0',
-                size: 'sm',
-              },
-              {
-                type: 'text',
-                text: recentTransactions,
-                color: '#ffffff',
-                size: 'xs',
-                wrap: true,
-              },
-            ],
-          },
-        ],
-      },
-      footer: {
-        type: 'box',
-        layout: 'vertical',
-        backgroundColor: '#1a1a2e',
-        paddingAll: '15px',
-        spacing: 'sm',
-        contents: [
-          {
-            type: 'box',
-            layout: 'horizontal',
-            spacing: 'sm',
-            contents: [
-              {
-                type: 'button',
-                style: 'primary',
-                color: '#00ff88',
-                action: {
-                  type: 'postback',
-                  label: '🔄 อัปเดต',
-                  data: 'action=refresh_balance',
-                },
-                flex: 1,
-              },
-              {
-                type: 'button',
-                style: 'secondary',
-                action: {
-                  type: 'postback',
-                  label: '📈 ประวัติ',
-                  data: 'action=view_history',
-                },
-                flex: 1,
-              },
-            ],
-          },
-          {
-            type: 'text',
-            text: `⏰ อัปเดตล่าสุด: ${new Date().toLocaleString('th-TH')}`,
-            color: '#888888',
-            size: 'xxs',
-            align: 'center',
-          },
-        ],
-      },
-    },
+    current_tier: currentTier,
+    current_points: points,
+    progress_percentage: Math.round(progress * 100),
+    points_needed_for_next: pointsNeeded,
+    next_tier: current.next,
+    tier_min_points: current.min,
+    tier_max_points: current.max,
   }
 }
 
-// ส่ง Balance Card ไปยัง LINE
-async function sendBalanceCard(lineUserId, cardMessage) {
-  if (!LINE_CHANNEL_ACCESS_TOKEN) {
-    console.log('⚠️ LINE Channel Access Token not configured')
-    return false
-  }
-
-  try {
-    const response = await fetch('https://api.line.me/v2/bot/message/push', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`,
-      },
-      body: JSON.stringify({
-        to: lineUserId,
-        messages: [cardMessage],
-      }),
-    })
-
-    if (!response.ok) {
-      const error = await response.text()
-      console.error('LINE push message error:', error)
-      return false
-    }
-
-    console.log('✅ Balance card sent successfully')
-    return true
-  } catch (error) {
-    console.error('❌ Send balance card error:', error)
-    return false
-  }
-}
-
-// ส่งข้อความแจ้งว่ายังไม่ได้เชื่อมโยงบัญชี
-async function sendNotLinkedMessage(lineUserId) {
-  if (!LINE_CHANNEL_ACCESS_TOKEN) {
-    return false
-  }
-
-  const message = {
-    type: 'flex',
-    altText: '❌ บัญชียังไม่ได้เชื่อมโยง',
-    contents: {
-      type: 'bubble',
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'md',
-        contents: [
-          {
-            type: 'text',
-            text: '❌ บัญชียังไม่ได้เชื่อมโยง',
-            weight: 'bold',
-            size: 'lg',
-            color: '#ff6b6b',
-          },
-          {
-            type: 'text',
-            text: 'กรุณาเข้าสู่ระบบผ่าน Prima789.com เพื่อเชื่อมโยงบัญชี LINE ของคุณ',
-            wrap: true,
-            color: '#666666',
-          },
-        ],
-      },
-      footer: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'sm',
-        contents: [
-          {
-            type: 'button',
-            style: 'primary',
-            height: 'sm',
-            action: {
-              type: 'uri',
-              label: '🔗 เชื่อมโยงบัญชี',
-              uri: 'https://prima789.com/login',
-            },
-          },
-        ],
-      },
+function getTierDisplayInfo(tier) {
+  const tierInfo = {
+    Bronze: {
+      color: '#CD7F32',
+      icon: '🥉',
+      name: 'สมาชิกทองแดง',
+      benefits: ['โบนัสต้อนรับ', 'รายการโปรโมชั่นพื้นฐาน'],
+    },
+    Silver: {
+      color: '#C0C0C0',
+      icon: '🥈',
+      name: 'สมาชิกเงิน',
+      benefits: ['โบนัสฝากเงินพิเศษ', 'แคชแบครายสัปดาห์', 'ลอตเตอรี่ฟรี'],
+    },
+    Gold: {
+      color: '#FFD700',
+      icon: '🥇',
+      name: 'สมาชิกทอง',
+      benefits: [
+        'โบนัสสูงสุด 50%',
+        'แคshแบครายวัน',
+        'เครดิตฟรี',
+        'ของรางวัลพิเศษ',
+      ],
+    },
+    Platinum: {
+      color: '#E5E4E2',
+      icon: '💎',
+      name: 'สมาชิกแพลตตินัม',
+      benefits: [
+        'Account Manager เฉพาะ',
+        'โบนัสไม่อั้น',
+        'Fast Track ถอนเงิน',
+        'ทัวร์นาเม้นต์พิเศษ',
+      ],
+    },
+    Diamond: {
+      color: '#B9F2FF',
+      icon: '💠',
+      name: 'สมาชิกเพชร',
+      benefits: [
+        'VIP Treatment',
+        'เครดิตไม่อั้น',
+        'ของรางวัลเอ็กซ์คลูซีฟ',
+        'งานปาร์ตี้ VIP',
+      ],
     },
   }
 
-  try {
-    const response = await fetch('https://api.line.me/v2/bot/message/push', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`,
-      },
-      body: JSON.stringify({
-        to: lineUserId,
-        messages: [message],
-      }),
-    })
+  return tierInfo[tier] || tierInfo['Bronze']
+}
 
-    return response.ok
-  } catch (error) {
-    console.error('Send not linked message error:', error)
-    return false
-  }
+function getRelativeTime(dateString) {
+  if (!dateString) return 'ไม่ทราบ'
+
+  const now = new Date()
+  const date = new Date(dateString)
+  const diffMs = now - date
+  const diffMins = Math.floor(diffMs / (1000 * 60))
+  const diffHours = Math.floor(diffMins / 60)
+  const diffDays = Math.floor(diffHours / 24)
+
+  if (diffMins < 1) return 'เมื่อสักครู่'
+  if (diffMins < 60) return `${diffMins} นาทีที่แล้ว`
+  if (diffHours < 24) return `${diffHours} ชั่วโมงที่แล้ว`
+  if (diffDays < 30) return `${diffDays} วันที่แล้ว`
+
+  return date.toLocaleDateString('th-TH', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
 }

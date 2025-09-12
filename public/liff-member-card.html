@@ -723,37 +723,31 @@
                 hideWarning();
                 showLoading(true);
                 
-                // Simulate API call delay
-                await delay(1000);
+                if (!userProfile?.userId) {
+                    throw new Error('ไม่พบข้อมูล LINE User');
+                }
+
+                // เรียก API จริงแทน mock
+                const result = await makeApiCall(
+                    `${API_CONFIG.ENDPOINTS.CHECK_LINKING}?lineUserId=${userProfile.userId}`
+                );
                 
-                if (isMockMode) {
-                    // Mock: randomly decide if account is linked
-                    const isLinked = Math.random() > 0.2; // 80% chance linked
-                    
-                    if (isLinked) {
-                        displayMemberCard();
-                        startAutoRefresh();
-                    } else {
-                        showNotLinked();
-                    }
+                if (!result.success) {
+                    throw new Error(result.error || 'ไม่สามารถตรวจสอบการเชื่อมโยงได้');
+                }
+
+                if (result.data.isLinked) {
+                    memberData = result.data.memberData;
+                    displayMemberCard();
+                    await requestBalanceUpdate();
+                    startAutoRefresh();
                 } else {
-                    // Real API call (will need actual implementation)
-                    const response = await mockApiCall(`/api/check-account-linking?lineUserId=${userProfile.userId}`);
-                    const result = await response.json();
-                    
-                    if (result.success && result.isLinked) {
-                        memberData = result.data;
-                        displayMemberCard();
-                        await requestBalanceUpdate();
-                        startAutoRefresh();
-                    } else {
-                        showNotLinked();
-                    }
+                    showNotLinked();
                 }
                 
             } catch (error) {
                 console.error('Error loading member data:', error);
-                showError('ไม่สามารถโหลดข้อมูลได้ กรุณาลองใหม่อีกครั้ง');
+                showError(error.message || 'ไม่สามารถโหลดข้อมูลได้ กรุณาลองใหม่อีกครั้ง');
             } finally {
                 showLoading(false);
             }
@@ -761,36 +755,31 @@
 
         async function requestBalanceUpdate() {
             try {
-                if (isMockMode) {
-                    // Update mock data with small random changes
-                    memberData.balance += (Math.random() - 0.5) * 100;
-                    memberData.points += Math.floor(Math.random() * 10);
-                    displayMemberCard();
-                    return;
-                }
+                if (!userProfile?.userId) return;
 
-                const response = await mockApiCall('/api/balance-inquiry', {
+                const result = await makeApiCall(API_CONFIG.ENDPOINTS.BALANCE_INQUIRY, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
                     body: JSON.stringify({
                         lineUserId: userProfile.userId,
-                        requestType: 'balance'
+                        requestType: 'balance_and_transactions'
                     })
                 });
-                
-                const result = await response.json();
+
                 if (result.success && result.data) {
+                    // อัปเดตข้อมูลสมาชิก
                     memberData = { ...memberData, ...result.data };
                     displayMemberCard();
+                    
+                    // แสดงข้อมูลล่าสุด
+                    console.log('Balance updated:', result.data);
                 }
                 
             } catch (error) {
                 console.error('Error requesting balance update:', error);
+                // ไม่แสดง error สำหรับ background updates
             }
         }
-
+        
         function displayMemberCard() {
             // Show member card content
             document.getElementById('memberCardContent').style.display = 'block';
