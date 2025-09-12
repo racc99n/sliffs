@@ -1,0 +1,45 @@
+{
+  "_comment": "===== package.json =====",
+  "name": "sliffs",
+  "version": "1.0.0",
+  "description": "SLIFFS - Prima789 LINE Integration Functions & Front-end System",
+  "main": "index.js",
+  "scripts": {
+    "dev": "netlify dev",
+    "build": "echo 'Build completed'",
+    "deploy": "netlify deploy --prod",
+    "deploy:preview": "netlify deploy",
+    "setup": "node scripts/setup.js",
+    "test": "node scripts/test-functions.js",
+    "check-health": "node scripts/health-check.js",
+    "create-db": "node scripts/create-database.js",
+    "seed-db": "node scripts/seed-database.js",
+    "backup-db": "node scripts/backup-database.js",
+    "logs": "netlify functions:logs",
+    "status": "netlify status"
+  },
+  "keywords": [
+    "netlify",
+    "functions",
+    "line",
+    "prima789",
+    "liff",
+    "postgresql"
+  ],
+  "author": "SLIFFS Team",
+  "license": "MIT",
+  "dependencies": {
+    "pg": "^8.11.3",
+    "node-fetch": "^2.7.0"
+  },
+  "devDependencies": {
+    "netlify-cli": "^17.10.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-repo/sliffs"
+  }
+}
