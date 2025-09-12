@@ -84,7 +84,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/sliffs.git"
+    "url": "https://github.com/racc99n/sliffs.git"
   },
   "config": {
     "production_url": "https://sliffs.netlify.app",
