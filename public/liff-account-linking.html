@@ -394,6 +394,26 @@
             color: #856404;
         }
 
+        .login-prompt {
+            background: #f0f8ff;
+            border: 2px solid #0066cc;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .login-prompt h3 {
+            color: #0066cc;
+            margin-bottom: 10px;
+        }
+
+        .login-prompt p {
+            color: #0066cc;
+            margin-bottom: 15px;
+            line-height: 1.5;
+        }
+
         @media (max-width: 480px) {
             .container {
                 margin: 10px;
@@ -427,8 +447,26 @@
                 <div class="progress-fill" id="progressFill" style="width: 25%;"></div>
             </div>
 
+            <!-- Step 0: LINE Login Required -->
+            <div class="step active" id="stepLogin">
+                <div class="login-prompt">
+                    <h3>🔐 เข้าสู่ระบบ LINE</h3>
+                    <p>กรุณาเข้าสู่ระบบ LINE เพื่อเชื่อมโยงบัญชี Prima789</p>
+                    <button class="btn btn-primary" onclick="loginToLine()">
+                        <span id="loginText">เข้าสู่ระบบ LINE</span>
+                        <span id="loginLoading" class="loading" style="display: none;"></span>
+                    </button>
+                </div>
+
+                <!-- Debug Information -->
+                <div class="debug-info" id="debugInfo" style="display: none;">
+                    <h4>Debug Information:</h4>
+                    <div id="debugContent"></div>
+                </div>
+            </div>
+
             <!-- Step 1: Show LINE Profile -->
-            <div class="step active" id="step1">
+            <div class="step" id="step1">
                 <div class="info-box">
                     <h3>📱 ข้อมูล LINE Profile</h3>
                     <p>ระบบจะใช้ข้อมูลจาก LINE ของคุณในการค้นหาและเชื่อมโยงบัญชี Prima789</p>
@@ -437,12 +475,6 @@
                 <div class="user-profile" id="userProfileDisplay">
                     <div class="loading" style="margin: 20px auto;"></div>
                     <p>กำลังโหลดข้อมูล LINE Profile...</p>
-                </div>
-
-                <!-- Debug Information -->
-                <div class="debug-info" id="debugInfo" style="display: none;">
-                    <h4>Debug Information:</h4>
-                    <div id="debugContent"></div>
                 </div>
 
                 <button class="btn btn-primary" id="continueBtn" onclick="searchPrima789Account()" disabled>
@@ -649,16 +681,6 @@
         let foundAccount = null;
         let socketConnection = null;
         let isLIFFAvailable = false;
-        let isMockMode = false;
-
-        // Mock data สำหรับการทดสอบเท่านั้น
-        const mockUserProfile = {
-            userId: 'U' + Math.random().toString(36).substr(2, 32),
-            displayName: 'สมชาย ดีใจ',
-            pictureUrl: 'https://via.placeholder.com/150/06C755/FFFFFF?text=User',
-            statusMessage: 'Hello LINE!',
-            language: 'th'
-        };
 
         // Initialize application
         document.addEventListener('DOMContentLoaded', async () => {
@@ -671,96 +693,94 @@
                 if (typeof liff !== 'undefined') {
                     await initializeLIFF();
                 } else {
-                    console.warn('LIFF SDK not available, switching to mock mode');
-                    initializeMockMode();
+                    console.error('LIFF SDK not available');
+                    showError('ไม่สามารถโหลด LINE LIFF SDK ได้ กรุณาลองใหม่อีกครั้ง');
                 }
             } catch (error) {
                 console.error('App initialization error:', error);
                 showDebugInfo('App Init Error', error);
-                initializeMockMode();
+                showError('เกิดข้อผิดพลาดในการเริ่มต้นระบบ กรุณาลองใหม่อีกครั้ง');
             }
         }
 
         async function initializeLIFF() {
             try {
-                // Use a valid LIFF ID or mock for testing
-                const liffId = '2008090006-ZMGmoOla'; // Replace with actual LIFF ID
+                // Replace with your actual LIFF ID
+                const liffId = '2008090006-ZMGmoOla';
 
                 await liff.init({ liffId: liffId });
+                isLIFFAvailable = true;
+
+                showDebugInfo('LIFF Initialized', {
+                    liffId: liffId,
+                    isInClient: liff.isInClient(),
+                    isLoggedIn: liff.isLoggedIn(),
+                    os: liff.getOS(),
+                    language: liff.getLanguage(),
+                    version: liff.getVersion(),
+                    lineVersion: liff.getLineVersion(),
+                    isApiAvailable: liff.isApiAvailable('shareTargetPicker')
+                });
 
                 if (!liff.isLoggedIn()) {
-                    if (liff.isInClient()) {
-                        liff.login();
-                    } else {
-                        // Not in LINE client, use mock mode
-                        showWarning('กรุณาเปิดใน LINE app เพื่อใช้งานจริง ตอนนี้ใช้โหมดทดสอบ');
-                        initializeMockMode();
-                    }
+                    // แสดงหน้า login
+                    showStep('stepLogin');
                     return;
                 }
 
+                // ถ้า login แล้ว ให้โหลด profile
+                await loadUserProfile();
+
+            } catch (error) {
+                console.error('LIFF initialization error:', error);
+                showDebugInfo('LIFF Error', error);
+                showError(`เกิดข้อผิดพลาดในการเชื่อมต่อ LINE: ${error.message}`);
+            }
+        }
+
+        async function loginToLine() {
+            try {
+                if (!isLIFFAvailable) {
+                    showError('LIFF SDK ไม่พร้อมใช้งาน');
+                    return;
+                }
+
+                showLoading('login', true);
+
+                // ใช้ liff.login() โดยไม่เช็คว่าอยู่ใน client หรือไม่
+                // LIFF จะจัดการเรื่อง redirect ให้เอง
+                liff.login({
+                    redirectUri: window.location.href
+                });
+
+            } catch (error) {
+                console.error('Login error:', error);
+                showDebugInfo('Login Error', error);
+                showError(`เกิดข้อผิดพลาดในการเข้าสู่ระบบ: ${error.message}`);
+                showLoading('login', false);
+            }
+        }
+
+        async function loadUserProfile() {
+            try {
                 // Get user profile
                 userProfile = await liff.getProfile();
-                isLIFFAvailable = true;
 
                 showDebugInfo('LIFF Profile', userProfile);
                 console.log('LIFF Profile loaded:', userProfile);
 
                 displayUserProfile();
+                showStep(1);
+                setProgress(25);
+
+                // ตรวจสอบว่าเชื่อมโยงแล้วหรือยัง
                 await checkExistingLink();
 
             } catch (error) {
-                console.error('LIFF initialization error:', error);
-                showDebugInfo('LIFF Error', error);
-                showWarning('ไม่สามารถเชื่อมต่อ LIFF ได้ ใช้โหมดทดสอบแทน');
-                initializeMockMode();
+                console.error('Error loading user profile:', error);
+                showDebugInfo('Profile Error', error);
+                showError(`เกิดข้อผิดพลาดในการโหลดข้อมูลผู้ใช้: ${error.message}`);
             }
-        }
-
-        function initializeMockMode() {
-            isMockMode = true;
-            userProfile = mockUserProfile;
-
-            showDebugInfo('Mock Mode', {
-                message: 'Running in mock mode for testing',
-                profile: userProfile
-            });
-
-            console.log('Mock mode initialized with profile:', userProfile);
-
-            // Simulate loading delay
-            setTimeout(() => {
-                displayUserProfile();
-                checkExistingLink();
-            }, 1000);
-        }
-
-        function showWarning(message) {
-            const warningHtml = `
-                <div class="warning-box">
-                    <strong>⚠️ โหมดทดสอบ</strong><br>
-                    ${message}
-                </div>
-            `;
-
-            // Insert warning at the top of content
-            const content = document.querySelector('.content');
-            content.insertAdjacentHTML('afterbegin', warningHtml);
-        }
-
-        function showDebugInfo(title, data) {
-            const debugInfo = document.getElementById('debugInfo');
-            const debugContent = document.getElementById('debugContent');
-
-            const debugHtml = `
-                <div style="margin-bottom: 10px;">
-                    <strong>${title}:</strong>
-                    <pre>${JSON.stringify(data, null, 2)}</pre>
-                </div>
-            `;
-
-            debugContent.innerHTML += debugHtml;
-            debugInfo.style.display = 'block';
         }
 
         function displayUserProfile() {
@@ -772,7 +792,6 @@
                      onerror="this.src='${defaultAvatar}'">
                 <div class="profile-name">${userProfile.displayName}</div>
                 <div class="profile-id">ID: ${userProfile.userId.substring(0, 20)}...</div>
-                ${isMockMode ? '<div style="color: #ff9800; font-size: 12px; margin-top: 5px;">โหมดทดสอบ</div>' : ''}
             `;
 
             document.getElementById('userProfileDisplay').innerHTML = profileHtml;
@@ -781,18 +800,6 @@
 
         async function checkExistingLink() {
             try {
-                if (isMockMode) {
-                    // Mock: randomly decide if already linked
-                    const isLinked = Math.random() > 0.8; // 20% chance already linked
-                    if (isLinked) {
-                        setTimeout(() => {
-                            showStep(4);
-                            setProgress(100);
-                        }, 1000);
-                    }
-                    return;
-                }
-
                 const result = await makeApiCallWithRetry(API_CONFIG.ENDPOINTS.CHECK_LINKING, {
                     method: 'POST',
                     body: JSON.stringify({
@@ -1154,11 +1161,11 @@
             document.getElementById('processBtn').disabled = true;
         }
 
-        function showStep(stepNumber) {
+        function showStep(stepId) {
             document.querySelectorAll('.step').forEach(step => {
                 step.classList.remove('active');
             });
-            document.getElementById(`step${stepNumber}`).classList.add('active');
+            document.getElementById(stepId).classList.add('active');
         }
 
         function setProgress(percentage) {
@@ -1180,14 +1187,51 @@
 
         function showError(message) {
             const errorElement = document.getElementById('errorMessage');
-            errorElement.textContent = message;
-            errorElement.style.display = 'block';
+            if (errorElement) {
+                errorElement.textContent = message;
+                errorElement.style.display = 'block';
+            } else {
+                // Create error element if it doesn't exist
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'error-message';
+                errorDiv.textContent = message;
+                errorDiv.style.display = 'block';
+
+                const currentStep = document.querySelector('.step.active');
+                if (currentStep) {
+                    currentStep.appendChild(errorDiv);
+                }
+            }
         }
 
         function hideError() {
-            document.getElementById('errorMessage').style.display = 'none';
+            const errorElement = document.getElementById('errorMessage');
+            if (errorElement) {
+                errorElement.style.display = 'none';
+            }
         }
-    </script>
-</body>
 
-</html>
+        function showDebugInfo(title, data) {
+            const debugInfo = document.getElementById('debugInfo');
+            const debugContent = document.getElementById('debugContent');
+
+            if (debugInfo && debugContent) {
+                const debugHtml = `
+                    <div style="margin-bottom: 10px;">
+                        <strong>${title}:</strong>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    </div>
+                `;
+
+                debugContent.innerHTML += debugHtml;
+                debugInfo.style.display = 'block';
+            }
+        }
+
+        // Handle back button navigation
+        window.addEventListener('popstate', function (event) {
+            // Handle browser back button if needed
+            console.log('Navigation back detected');
+        });
+
+        // Handle page visibility changes
