@@ -1,34 +1,496 @@
-const {
-  upsertPrima789Account,
-  updateAccountBalance,
-  createTransaction,
-  createAccountLink,
-  getLineUser,
-  upsertLineUser,
-  completeSocketSyncSession,
-  getSocketSyncSession,
-  logSystemEvent,
-} = require('./utils/database')
+/**
+ * Prima789 Transaction Webhook - Enhanced Error Handling
+ * Handles all transaction data from Prima789 console integration
+ */
 
-// Webhook API Key from environment
-const WEBHOOK_API_KEY = process.env.PRIMA789_WEBHOOK_API_KEY
-const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN
+const { Pool } = require('pg')
 
+// Database configuration with enhanced error handling
+let pool = null
+
+function initializeDatabase() {
+  if (pool) return pool
+
+  try {
+    const databaseUrl =
+      process.env.NETLIFY_DATABASE_URL || process.env.DATABASE_URL
+
+    if (!databaseUrl) {
+      throw new Error('Database URL not configured')
+    }
+
+    pool = new Pool({
+      connectionString: databaseUrl,
+      ssl: databaseUrl.includes('localhost')
+        ? false
+        : { rejectUnauthorized: false },
+      max: 5,
+      min: 1,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000,
+      acquireTimeoutMillis: 10000,
+    })
+
+    pool.on('error', (err) => {
+      console.error('Database pool error:', err)
+    })
+
+    console.log('✅ Database pool initialized')
+    return pool
+  } catch (error) {
+    console.error('❌ Database initialization failed:', error)
+    throw error
+  }
+}
+
+// Enhanced database utilities
+async function executeQuery(query, params = []) {
+  const client = initializeDatabase()
+
+  try {
+    console.log('🔍 Executing query:', query.substring(0, 100) + '...')
+    console.log('📊 Parameters:', params)
+
+    const result = await client.query(query, params)
+    console.log('✅ Query executed successfully, rows:', result.rowCount)
+
+    return result
+  } catch (error) {
+    console.error('❌ Database query error:', error)
+    console.error('Query:', query)
+    console.error('Params:', params)
+    throw error
+  }
+}
+
+// Upsert Prima789 account
+async function upsertPrima789Account(accountData) {
+  try {
+    const query = `
+            INSERT INTO prima789_accounts (
+                username, mm_user, acc_no, bank_id, bank_name, 
+                first_name, last_name, tel, email, available, 
+                credit_limit, bet_credit, tier, points, 
+                member_ref, register_time, last_login, is_active
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+            ON CONFLICT (username) 
+            DO UPDATE SET
+                mm_user = EXCLUDED.mm_user,
+                acc_no = EXCLUDED.acc_no,
+                bank_id = EXCLUDED.bank_id,
+                bank_name = EXCLUDED.bank_name,
+                first_name = EXCLUDED.first_name,
+                last_name = EXCLUDED.last_name,
+                tel = EXCLUDED.tel,
+                email = EXCLUDED.email,
+                available = EXCLUDED.available,
+                credit_limit = EXCLUDED.credit_limit,
+                bet_credit = EXCLUDED.bet_credit,
+                tier = EXCLUDED.tier,
+                points = EXCLUDED.points,
+                last_login = EXCLUDED.last_login,
+                updated_at = CURRENT_TIMESTAMP
+            RETURNING id, username, available, updated_at;
+        `
+
+    const params = [
+      accountData.username || accountData.mm_user,
+      accountData.mm_user || accountData.username,
+      accountData.acc_no || null,
+      accountData.bank_id || null,
+      accountData.bank_name || null,
+      accountData.first_name || null,
+      accountData.last_name || null,
+      accountData.tel || accountData.phone || null,
+      accountData.email || null,
+      parseFloat(accountData.available) || 0,
+      parseFloat(accountData.credit_limit) || 0,
+      parseFloat(accountData.bet_credit) || 0,
+      accountData.tier || 'Bronze',
+      parseInt(accountData.points) || 0,
+      accountData.member_ref || null,
+      accountData.register_time || accountData.registerTime || new Date(),
+      new Date(),
+      true,
+    ]
+
+    const result = await executeQuery(query, params)
+    return result.rows[0]
+  } catch (error) {
+    console.error('❌ Error upserting Prima789 account:', error)
+    throw error
+  }
+}
+
+// Create transaction record
+async function createTransaction(transactionData) {
+  try {
+    const query = `
+            INSERT INTO transactions (
+                transaction_type, user_id, username, amount,
+                balance_before, balance_after, transaction_id,
+                status, details, created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            RETURNING id, transaction_id, created_at;
+        `
+
+    const params = [
+      transactionData.transaction_type,
+      transactionData.user_id,
+      transactionData.username,
+      parseFloat(transactionData.amount) || 0,
+      parseFloat(transactionData.balance_before) || null,
+      parseFloat(transactionData.balance_after) || null,
+      transactionData.transaction_id,
+      'completed',
+      JSON.stringify(transactionData.details || {}),
+      new Date(transactionData.timestamp),
+    ]
+
+    const result = await executeQuery(query, params)
+    return result.rows[0]
+  } catch (error) {
+    console.error('❌ Error creating transaction:', error)
+    throw error
+  }
+}
+
+// Log system events
+async function logSystemEvent(level, source, message, details = {}) {
+  try {
+    const query = `
+            INSERT INTO system_logs (level, source, message, details, created_at)
+            VALUES ($1, $2, $3, $4, $5);
+        `
+
+    const params = [level, source, message, JSON.stringify(details), new Date()]
+
+    await executeQuery(query, params)
+  } catch (error) {
+    console.error('❌ Error logging system event:', error)
+    // Don't throw here to prevent log errors from breaking main flow
+  }
+}
+
+// Validate transaction data
+function validateTransactionData(data) {
+  const errors = []
+
+  if (!data) {
+    errors.push('Transaction data is required')
+    return errors
+  }
+
+  if (!data.transaction_type) {
+    errors.push('transaction_type is required')
+  }
+
+  if (!data.user_id && !data.username) {
+    errors.push('user_id or username is required')
+  }
+
+  if (!data.transaction_id) {
+    errors.push('transaction_id is required')
+  }
+
+  // Validate transaction types
+  const validTypes = [
+    'user_login',
+    'deposit',
+    'withdrawal',
+    'data_sync',
+    'heartbeat',
+    'transaction',
+    'system_event',
+  ]
+
+  if (data.transaction_type && !validTypes.includes(data.transaction_type)) {
+    errors.push(`Invalid transaction_type: ${data.transaction_type}`)
+  }
+
+  return errors
+}
+
+// Process transaction data
+async function processTransaction(transactionData) {
+  console.log('🔄 Processing transaction:', transactionData.transaction_type)
+
+  try {
+    // Validate data
+    const validationErrors = validateTransactionData(transactionData)
+    if (validationErrors.length > 0) {
+      throw new Error(`Validation failed: ${validationErrors.join(', ')}`)
+    }
+
+    let result = {}
+
+    // Process based on transaction type
+    switch (transactionData.transaction_type) {
+      case 'user_login':
+        result = await processUserLogin(transactionData)
+        break
+
+      case 'data_sync':
+        result = await processDataSync(transactionData)
+        break
+
+      case 'deposit':
+      case 'withdrawal':
+        result = await processBalanceTransaction(transactionData)
+        break
+
+      case 'heartbeat':
+        result = await processHeartbeat(transactionData)
+        break
+
+      case 'system_event':
+        result = await processSystemEvent(transactionData)
+        break
+
+      default:
+        result = await processGenericTransaction(transactionData)
+    }
+
+    console.log('✅ Transaction processed successfully:', result)
+    return result
+  } catch (error) {
+    console.error('❌ Error processing transaction:', error)
+
+    // Log error to database
+    await logSystemEvent(
+      'ERROR',
+      'transaction-processor',
+      `Failed to process ${transactionData.transaction_type}`,
+      {
+        error: error.message,
+        transaction_id: transactionData.transaction_id,
+        user_id: transactionData.user_id,
+      }
+    )
+
+    throw error
+  }
+}
+
+// Process user login
+async function processUserLogin(transactionData) {
+  console.log('👤 Processing user login')
+
+  // Extract user data from transaction details
+  const userData = transactionData.details?.user_data || {}
+  const username = transactionData.user_id || transactionData.username
+
+  // Upsert Prima789 account
+  const accountData = {
+    username: username,
+    mm_user: username,
+    ...userData,
+  }
+
+  const account = await upsertPrima789Account(accountData)
+  const transaction = await createTransaction(transactionData)
+
+  return {
+    type: 'user_login',
+    account_id: account?.id,
+    transaction_id: transaction?.id,
+    username: username,
+  }
+}
+
+// Process data sync
+async function processDataSync(transactionData) {
+  console.log('🔄 Processing data sync')
+
+  const userData = transactionData.details?.user_data || {}
+  const username = transactionData.user_id || transactionData.username
+
+  if (Object.keys(userData).length > 0) {
+    const accountData = {
+      username: username,
+      mm_user: username,
+      ...userData,
+    }
+
+    const account = await upsertPrima789Account(accountData)
+    const transaction = await createTransaction(transactionData)
+
+    return {
+      type: 'data_sync',
+      account_id: account?.id,
+      transaction_id: transaction?.id,
+      synced_data: Object.keys(userData),
+    }
+  }
+
+  // Just log the sync attempt
+  const transaction = await createTransaction(transactionData)
+  return {
+    type: 'data_sync',
+    transaction_id: transaction?.id,
+    message: 'Sync logged without data update',
+  }
+}
+
+// Process balance transaction
+async function processBalanceTransaction(transactionData) {
+  console.log('💰 Processing balance transaction')
+
+  const transaction = await createTransaction(transactionData)
+
+  // Update account balance if user data is available
+  const username = transactionData.user_id || transactionData.username
+  const newBalance = transactionData.balance_after
+
+  if (username && newBalance !== null && newBalance !== undefined) {
+    try {
+      const updateQuery = `
+                UPDATE prima789_accounts 
+                SET available = $1, updated_at = CURRENT_TIMESTAMP
+                WHERE username = $2 OR mm_user = $2
+                RETURNING id, username, available;
+            `
+
+      const updateResult = await executeQuery(updateQuery, [
+        parseFloat(newBalance),
+        username,
+      ])
+
+      return {
+        type: transactionData.transaction_type,
+        transaction_id: transaction?.id,
+        account_updated: updateResult.rows.length > 0,
+        new_balance: newBalance,
+      }
+    } catch (error) {
+      console.error('⚠️ Failed to update account balance:', error)
+    }
+  }
+
+  return {
+    type: transactionData.transaction_type,
+    transaction_id: transaction?.id,
+    account_updated: false,
+  }
+}
+
+// Process heartbeat
+async function processHeartbeat(transactionData) {
+  console.log('💓 Processing heartbeat')
+
+  // For heartbeat, we just log the event and update system status
+  await logSystemEvent('INFO', 'heartbeat', 'System heartbeat received', {
+    user_id: transactionData.user_id,
+    session_id: transactionData.details?.session_id,
+    stats: transactionData.details?.stats,
+    uptime: transactionData.details?.uptime,
+  })
+
+  return {
+    type: 'heartbeat',
+    status: 'received',
+    timestamp: new Date().toISOString(),
+  }
+}
+
+// Process system event
+async function processSystemEvent(transactionData) {
+  console.log('🔧 Processing system event')
+
+  await logSystemEvent('INFO', 'system-event', 'System event received', {
+    event_type: transactionData.details?.event_type,
+    user_id: transactionData.user_id,
+    details: transactionData.details,
+  })
+
+  return {
+    type: 'system_event',
+    event_logged: true,
+  }
+}
+
+// Process generic transaction
+async function processGenericTransaction(transactionData) {
+  console.log('📝 Processing generic transaction')
+
+  const transaction = await createTransaction(transactionData)
+
+  return {
+    type: 'generic',
+    transaction_id: transaction?.id,
+    transaction_type: transactionData.transaction_type,
+  }
+}
+
+// Main webhook handler
 exports.handler = async (event, context) => {
-  console.log('🔗 Transaction Webhook - Start')
+  console.log('🎯 Prima789 Transaction Webhook - Start')
+  console.log('📊 Request info:', {
+    method: event.httpMethod,
+    headers: event.headers ? Object.keys(event.headers) : 'none',
+    bodyLength: event.body ? event.body.length : 0,
+  })
 
-  // CORS headers
+  // Enhanced CORS headers
   const headers = {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers':
+      'Content-Type, Authorization, X-API-Key, X-Session-ID, X-Transaction-Priority, X-Retry-Attempt',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS, GET',
     'Content-Type': 'application/json',
+    'Cache-Control': 'no-cache',
   }
 
+  // Handle preflight requests
   if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 200, headers, body: '' }
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ message: 'CORS preflight OK' }),
+    }
   }
 
+  // Health check endpoint
+  if (event.httpMethod === 'GET') {
+    try {
+      // Test database connection
+      const testResult = await executeQuery(
+        'SELECT NOW() as server_time, version() as db_version'
+      )
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          status: 'healthy',
+          timestamp: new Date().toISOString(),
+          database: {
+            connected: true,
+            server_time: testResult.rows[0]?.server_time,
+            version: testResult.rows[0]?.db_version?.substring(0, 50),
+          },
+          environment: {
+            database_configured: !!process.env.NETLIFY_DATABASE_URL,
+            api_key_configured: !!process.env.PRIMA789_WEBHOOK_API_KEY,
+          },
+        }),
+      }
+    } catch (error) {
+      return {
+        statusCode: 503,
+        headers,
+        body: JSON.stringify({
+          success: false,
+          status: 'unhealthy',
+          error: error.message,
+          timestamp: new Date().toISOString(),
+        }),
+      }
+    }
+  }
+
+  // Only allow POST for webhook
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
@@ -36,31 +498,81 @@ exports.handler = async (event, context) => {
       body: JSON.stringify({
         success: false,
         error: 'Method not allowed',
-        message: 'Only POST method is supported',
+        message: 'Only POST method is supported for webhook data',
       }),
     }
   }
 
+  let transactionData = null
+
   try {
+    // Validate environment
+    const WEBHOOK_API_KEY = process.env.PRIMA789_WEBHOOK_API_KEY
+
+    if (!WEBHOOK_API_KEY) {
+      console.error('❌ WEBHOOK_API_KEY not configured')
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({
+          success: false,
+          error: 'Server configuration error',
+          message: 'Webhook API key not configured',
+        }),
+      }
+    }
+
+    if (!process.env.NETLIFY_DATABASE_URL && !process.env.DATABASE_URL) {
+      console.error('❌ Database URL not configured')
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({
+          success: false,
+          error: 'Server configuration error',
+          message: 'Database connection not configured',
+        }),
+      }
+    }
+
     // Validate API key
     const providedApiKey =
-      event.headers['x-api-key'] || event.headers['X-API-Key']
+      event.headers['x-api-key'] ||
+      event.headers['X-API-Key'] ||
+      event.headers['x-API-key']
 
-    if (
-      !WEBHOOK_API_KEY ||
-      !providedApiKey ||
-      providedApiKey !== WEBHOOK_API_KEY
-    ) {
+    console.log('🔑 API Key validation:', {
+      provided: !!providedApiKey,
+      configured: !!WEBHOOK_API_KEY,
+      matches: providedApiKey === WEBHOOK_API_KEY,
+    })
+
+    if (!providedApiKey) {
       await logSystemEvent(
         'WARN',
         'transaction-webhook',
-        'Unauthorized webhook access attempt',
+        'Missing API key in request'
+      )
+      return {
+        statusCode: 401,
+        headers,
+        body: JSON.stringify({
+          success: false,
+          error: 'Unauthorized',
+          message: 'API key required',
+        }),
+      }
+    }
+
+    if (providedApiKey !== WEBHOOK_API_KEY) {
+      await logSystemEvent(
+        'WARN',
+        'transaction-webhook',
+        'Invalid API key provided',
         {
-          provided_key: providedApiKey ? 'provided' : 'missing',
-          ip: event.headers['x-forwarded-for'],
+          provided_key_prefix: providedApiKey?.substring(0, 10) + '...',
         }
       )
-
       return {
         statusCode: 401,
         headers,
@@ -72,69 +584,107 @@ exports.handler = async (event, context) => {
       }
     }
 
-    const webhookData = JSON.parse(event.body || '{}')
-    console.log('📥 Webhook received:', {
-      type: webhookData.transaction_type,
-      user: webhookData.username,
-      amount: webhookData.amount,
-    })
-
-    // Validate webhook data
-    if (!webhookData.transaction_type || !webhookData.username) {
+    // Parse request body
+    if (!event.body) {
       return {
         statusCode: 400,
         headers,
         body: JSON.stringify({
           success: false,
-          error: 'Invalid webhook data',
-          message: 'transaction_type and username are required',
+          error: 'Bad request',
+          message: 'Request body is required',
         }),
       }
     }
 
-    let result = {}
-
-    switch (webhookData.transaction_type) {
-      case 'user_login':
-        result = await handleUserLogin(webhookData)
-        break
-      case 'data_sync':
-        result = await handleDataSync(webhookData)
-        break
-      case 'deposit':
-      case 'withdraw':
-      case 'bet':
-      case 'win':
-      case 'bonus':
-        result = await handleTransaction(webhookData)
-        break
-      case 'balance_update':
-        result = await handleBalanceUpdate(webhookData)
-        break
-      default:
-        result = await handleGenericTransaction(webhookData)
+    try {
+      transactionData = JSON.parse(event.body)
+      console.log('📋 Parsed transaction data:', {
+        type: transactionData.transaction_type,
+        user_id: transactionData.user_id,
+        transaction_id: transactionData.transaction_id,
+        amount: transactionData.amount,
+        timestamp: transactionData.timestamp,
+      })
+    } catch (parseError) {
+      console.error('❌ JSON parse error:', parseError)
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({
+          success: false,
+          error: 'Bad request',
+          message: 'Invalid JSON in request body',
+        }),
+      }
     }
 
-    console.log(
-      `✅ Webhook processed for ${webhookData.username}:`,
-      result.success ? 'SUCCESS' : 'FAILED'
+    // Initialize database connection
+    initializeDatabase()
+
+    // Process the transaction
+    const result = await processTransaction(transactionData)
+
+    // Log success
+    await logSystemEvent(
+      'INFO',
+      'transaction-webhook',
+      'Transaction processed successfully',
+      {
+        transaction_type: transactionData.transaction_type,
+        transaction_id: transactionData.transaction_id,
+        user_id: transactionData.user_id,
+        result: result,
+      }
     )
+
+    // Return success response
+    const response = {
+      success: true,
+      message: 'Transaction processed successfully',
+      data: result,
+      timestamp: new Date().toISOString(),
+      transaction_id: transactionData.transaction_id,
+    }
+
+    console.log('✅ Webhook completed successfully:', response)
 
     return {
-      statusCode: result.success ? 200 : 400,
+      statusCode: 200,
       headers,
-      body: JSON.stringify(result),
+      body: JSON.stringify(response),
     }
   } catch (error) {
-    console.error('❌ Transaction Webhook Error:', error)
+    console.error('❌ Webhook error:', error)
+    console.error('Stack trace:', error.stack)
 
-    await logSystemEvent(
-      'ERROR',
-      'transaction-webhook',
-      `Webhook processing error: ${error.message}`,
-      { error: error.message, stack: error.stack }
-    )
+    // Enhanced error logging
+    try {
+      await logSystemEvent(
+        'ERROR',
+        'transaction-webhook',
+        'Webhook processing failed',
+        {
+          error: error.message,
+          stack: error.stack,
+          transaction_data: transactionData
+            ? {
+                type: transactionData.transaction_type,
+                user_id: transactionData.user_id,
+                transaction_id: transactionData.transaction_id,
+              }
+            : 'not_parsed',
+          request_info: {
+            method: event.httpMethod,
+            body_length: event.body ? event.body.length : 0,
+          },
+        }
+      )
+    } catch (logError) {
+      console.error('❌ Failed to log error:', logError)
+    }
 
+    // Return error response
     return {
       statusCode: 500,
       headers,
@@ -142,399 +692,16 @@ exports.handler = async (event, context) => {
         success: false,
         error: 'Internal server error',
         message: 'Failed to process webhook',
-        details:
-          process.env.NODE_ENV === 'development' ? error.message : undefined,
+        timestamp: new Date().toISOString(),
+        error_id: Date.now().toString(), // Simple error tracking ID
+        debug_info:
+          process.env.NODE_ENV === 'development'
+            ? {
+                error_message: error.message,
+                transaction_type: transactionData?.transaction_type,
+              }
+            : undefined,
       }),
     }
   }
-}
-
-// Handle user login webhook
-async function handleUserLogin(webhookData) {
-  try {
-    const { username, details = {} } = webhookData
-    const userData = details.user_data || {}
-
-    console.log(`🔐 Processing user login: ${username}`)
-
-    // Update Prima789 account data
-    const accountData = {
-      username: username,
-      mm_user: userData.mm_user || username,
-      acc_no: userData.acc_no || userData.tel,
-      bank_id: userData.bank_id,
-      bank_name: userData.bank_name,
-      first_name: userData.first_name,
-      last_name: userData.last_name,
-      tel: userData.tel || userData.acc_no,
-      email: userData.email,
-      available: parseFloat(userData.available) || 0,
-      credit_limit: parseFloat(userData.credit_limit) || 0,
-      bet_credit: parseFloat(userData.bet_credit) || 0,
-      tier: userData.tier || 'Bronze',
-      points: parseInt(userData.points) || 0,
-      member_ref: userData.member_ref,
-      register_time: userData.created_at || userData.registerTime,
-      last_login: new Date().toISOString(),
-    }
-
-    const account = await upsertPrima789Account(accountData)
-
-    // Create transaction record
-    await createTransaction({
-      transaction_id: webhookData.transaction_id,
-      prima789_username: username,
-      transaction_type: 'user_login',
-      amount: 0,
-      balance_after: parseFloat(userData.available) || 0,
-      description: `User logged in to Prima789`,
-      source: 'console_log',
-      details: details,
-    })
-
-    // Check if there are any socket sync sessions waiting for this user
-    await processSocketSyncForUser(username, userData)
-
-    // Send LINE notification if linked
-    await sendLineNotificationIfLinked(username, {
-      type: 'login',
-      message: `🔐 เข้าสู่ระบบ Prima789 สำเร็จ\nยอดเงิน: ฿${parseFloat(
-        userData.available || 0
-      ).toLocaleString()}`,
-    })
-
-    await logSystemEvent(
-      'INFO',
-      'handleUserLogin',
-      `User login processed: ${username}`,
-      { account_data: accountData }
-    )
-
-    return {
-      success: true,
-      message: 'User login processed successfully',
-      account: {
-        username: account.username,
-        balance: parseFloat(account.available) || 0,
-        tier: account.tier,
-      },
-    }
-  } catch (error) {
-    console.error('Handle user login error:', error)
-    throw error
-  }
-}
-
-// Handle data sync webhook
-async function handleDataSync(webhookData) {
-  try {
-    const { username, details = {} } = webhookData
-    const userData = details.user_data || {}
-
-    console.log(`🔄 Processing data sync: ${username}`)
-
-    // Update Prima789 account
-    const accountData = {
-      username: username,
-      mm_user: userData.mm_user || username,
-      available: parseFloat(userData.available) || 0,
-      credit_limit: parseFloat(userData.credit_limit) || 0,
-      bet_credit: parseFloat(userData.bet_credit) || 0,
-      tier: userData.tier || 'Bronze',
-      points: parseInt(userData.points) || 0,
-      last_login: new Date().toISOString(),
-    }
-
-    // Only update non-null values
-    Object.keys(accountData).forEach((key) => {
-      if (
-        accountData[key] === null ||
-        accountData[key] === undefined ||
-        accountData[key] === ''
-      ) {
-        delete accountData[key]
-      }
-    })
-
-    const account = await upsertPrima789Account(accountData)
-
-    // Create transaction record
-    await createTransaction({
-      transaction_id: webhookData.transaction_id,
-      prima789_username: username,
-      transaction_type: 'data_sync',
-      amount: 0,
-      balance_before: webhookData.balance_before,
-      balance_after: parseFloat(userData.available) || 0,
-      description: `Data synchronized from Prima789`,
-      source: 'console_log',
-      details: details,
-    })
-
-    await logSystemEvent(
-      'INFO',
-      'handleDataSync',
-      `Data sync processed: ${username}`,
-      { sync_data: userData }
-    )
-
-    return {
-      success: true,
-      message: 'Data sync processed successfully',
-      account: {
-        username: account.username,
-        balance: parseFloat(account.available) || 0,
-        tier: account.tier,
-      },
-    }
-  } catch (error) {
-    console.error('Handle data sync error:', error)
-    throw error
-  }
-}
-
-// Handle financial transactions (deposit, withdraw, bet, win, bonus)
-async function handleTransaction(webhookData) {
-  try {
-    const {
-      transaction_type,
-      username,
-      amount,
-      balance_before,
-      balance_after,
-      details = {},
-    } = webhookData
-
-    console.log(
-      `💰 Processing ${transaction_type}: ${username}, amount: ${amount}`
-    )
-
-    // Update account balance
-    if (balance_after !== undefined && balance_after !== null) {
-      await updateAccountBalance(username, balance_after, 'console_log')
-    }
-
-    // Create transaction record
-    const transaction = await createTransaction({
-      transaction_id: webhookData.transaction_id,
-      prima789_username: username,
-      transaction_type: transaction_type,
-      amount: Math.abs(parseFloat(amount) || 0),
-      balance_before: balance_before,
-      balance_after: balance_after,
-      description: getTransactionDescription(transaction_type, amount),
-      source: 'console_log',
-      details: details,
-    })
-
-    // Send LINE notification if linked
-    await sendLineNotificationIfLinked(username, {
-      type: transaction_type,
-      amount: amount,
-      balance: balance_after,
-      message: formatTransactionMessage(
-        transaction_type,
-        amount,
-        balance_after
-      ),
-    })
-
-    await logSystemEvent(
-      'INFO',
-      'handleTransaction',
-      `${transaction_type} processed: ${username}`,
-      { transaction_type, amount, balance_after }
-    )
-
-    return {
-      success: true,
-      message: `${transaction_type} processed successfully`,
-      transaction: {
-        id: transaction.transaction_id,
-        type: transaction_type,
-        amount: Math.abs(parseFloat(amount) || 0),
-        balance: balance_after,
-      },
-    }
-  } catch (error) {
-    console.error('Handle transaction error:', error)
-    throw error
-  }
-}
-
-// Handle balance update webhook
-async function handleBalanceUpdate(webhookData) {
-  try {
-    const { username, balance_after } = webhookData
-
-    console.log(
-      `💰 Processing balance update: ${username}, new balance: ${balance_after}`
-    )
-
-    // Update account balance
-    await updateAccountBalance(username, balance_after, 'console_log')
-
-    // Create transaction record
-    await createTransaction({
-      transaction_id: webhookData.transaction_id,
-      prima789_username: username,
-      transaction_type: 'balance_update',
-      amount: 0,
-      balance_before: webhookData.balance_before,
-      balance_after: balance_after,
-      description: `Balance updated`,
-      source: 'console_log',
-      details: webhookData.details || {},
-    })
-
-    await logSystemEvent(
-      'INFO',
-      'handleBalanceUpdate',
-      `Balance update processed: ${username}`,
-      { new_balance: balance_after }
-    )
-
-    return {
-      success: true,
-      message: 'Balance update processed successfully',
-      balance: balance_after,
-    }
-  } catch (error) {
-    console.error('Handle balance update error:', error)
-    throw error
-  }
-}
-
-// Handle generic transaction
-async function handleGenericTransaction(webhookData) {
-  try {
-    const { transaction_type, username } = webhookData
-
-    console.log(
-      `🔄 Processing generic transaction: ${transaction_type} for ${username}`
-    )
-
-    // Create transaction record
-    const transaction = await createTransaction({
-      transaction_id: webhookData.transaction_id,
-      prima789_username: username,
-      transaction_type: transaction_type,
-      amount: parseFloat(webhookData.amount) || 0,
-      balance_before: webhookData.balance_before,
-      balance_after: webhookData.balance_after,
-      description: webhookData.description || `${transaction_type} transaction`,
-      source: 'console_log',
-      details: webhookData.details || {},
-    })
-
-    await logSystemEvent(
-      'INFO',
-      'handleGenericTransaction',
-      `Generic transaction processed: ${transaction_type} for ${username}`,
-      { transaction_type, username }
-    )
-
-    return {
-      success: true,
-      message: `${transaction_type} processed successfully`,
-      transaction: {
-        id: transaction.transaction_id,
-        type: transaction_type,
-      },
-    }
-  } catch (error) {
-    console.error('Handle generic transaction error:', error)
-    throw error
-  }
-}
-
-// Process socket sync for user (if any waiting sessions)
-async function processSocketSyncForUser(username, userData) {
-  try {
-    // This is a simplified implementation
-    // In a real system, you might need to maintain a mapping between Prima789 users and sync sessions
-    console.log(`Checking socket sync sessions for ${username}`)
-
-    await logSystemEvent(
-      'DEBUG',
-      'processSocketSyncForUser',
-      `Checking socket sync for ${username}`,
-      { username, user_data: userData }
-    )
-
-    // TODO: Implement actual socket sync session matching logic
-    // For now, just log the event
-  } catch (error) {
-    console.error('Process socket sync error:', error)
-  }
-}
-
-// Send LINE notification if account is linked
-async function sendLineNotificationIfLinked(
-  prima789Username,
-  notificationData
-) {
-  try {
-    if (!LINE_CHANNEL_ACCESS_TOKEN) {
-      console.log(
-        'LINE Channel Access Token not configured, skipping notification'
-      )
-      return
-    }
-
-    // TODO: Implement LINE notification sending
-    // This would require finding linked LINE users and sending messages
-
-    console.log(
-      `📱 Would send LINE notification for ${prima789Username}:`,
-      notificationData
-    )
-
-    await logSystemEvent(
-      'DEBUG',
-      'sendLineNotificationIfLinked',
-      `Notification queued for ${prima789Username}`,
-      { notification: notificationData }
-    )
-  } catch (error) {
-    console.error('Send LINE notification error:', error)
-  }
-}
-
-// Helper functions
-function getTransactionDescription(type, amount) {
-  const absAmount = Math.abs(parseFloat(amount) || 0)
-
-  switch (type) {
-    case 'deposit':
-      return `ฝากเงิน ฿${absAmount.toLocaleString()}`
-    case 'withdraw':
-      return `ถอนเงิน ฿${absAmount.toLocaleString()}`
-    case 'bet':
-      return `วางเดิมพัน ฿${absAmount.toLocaleString()}`
-    case 'win':
-      return `ชนะเดิมพัน ฿${absAmount.toLocaleString()}`
-    case 'bonus':
-      return `โบนัส ฿${absAmount.toLocaleString()}`
-    default:
-      return `ธุรกรรม ${type}`
-  }
-}
-
-function formatTransactionMessage(type, amount, balance) {
-  const absAmount = Math.abs(parseFloat(amount) || 0)
-  const balanceFormatted = parseFloat(balance || 0).toLocaleString()
-
-  const icons = {
-    deposit: '💰',
-    withdraw: '💸',
-    bet: '🎲',
-    win: '🏆',
-    bonus: '🎁',
-  }
-
-  const icon = icons[type] || '📊'
-  const description = getTransactionDescription(type, amount)
-
-  return `${icon} ${description}\nยอดคงเหลือ: ฿${balanceFormatted}`
 }
