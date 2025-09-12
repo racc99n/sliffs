@@ -3,773 +3,774 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>เชื่อมโยงบัญชี Prima789</title>
-    <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/versions/2.27.2/sdk.js"></script>
+    <title>Account Linking - Prima789</title>
+    <link rel="manifest" href="manifest.json">
+    <script src="https://static.line-scdn.net/liff/edge/2.1/sdk.js"></script>
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
-        
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             padding: 20px;
-            color: #333;
         }
-        
+
         .container {
-            max-width: 400px;
-            margin: 0 auto;
-            background: white;
+            background: rgba(255, 255, 255, 0.95);
             border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.15);
+            padding: 30px;
+            width: 100%;
+            max-width: 450px;
+            position: relative;
             overflow: hidden;
-            animation: slideUp 0.5s ease;
+            backdrop-filter: blur(10px);
         }
-        
-        @keyframes slideUp {
-            from {
-                opacity: 0;
-                transform: translateY(30px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+
+        .container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 5px;
+            background: linear-gradient(90deg, #ff6b6b, #4ecdc4, #45b7d1, #96ceb4, #feca57);
         }
-        
+
         .header {
-            background: linear-gradient(135deg, #06C755 0%, #00B900 100%);
-            padding: 30px 20px;
             text-align: center;
-            color: white;
+            margin-bottom: 30px;
         }
-        
-        .header h1 {
+
+        .logo {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+            border-radius: 50%;
+            margin: 0 auto 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 28px;
+            font-weight: bold;
+            box-shadow: 0 10px 30px rgba(238, 90, 36, 0.3);
+        }
+
+        h1 {
+            color: #333;
             font-size: 24px;
             margin-bottom: 10px;
         }
-        
-        .header p {
-            font-size: 14px;
-            opacity: 0.9;
-        }
-        
-        .content {
-            padding: 30px 20px;
-        }
-        
-        .step {
-            display: none;
-            text-align: center;
-        }
-        
-        .step.active {
-            display: block;
-            animation: fadeIn 0.3s ease;
-        }
-        
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-        
-        .user-profile {
-            background: #f8f9fa;
-            border-radius: 15px;
-            padding: 20px;
-            margin-bottom: 20px;
-            text-align: center;
-        }
-        
-        .profile-avatar {
-            width: 80px;
-            height: 80px;
-            border-radius: 50%;
-            margin: 0 auto 15px;
-            object-fit: cover;
-            border: 4px solid #06C755;
-        }
-        
-        .profile-name {
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 5px;
-            color: #333;
-        }
-        
-        .profile-id {
-            font-size: 12px;
+
+        .subtitle {
             color: #666;
-            font-family: monospace;
+            font-size: 14px;
+            line-height: 1.5;
         }
-        
-        .sync-options {
-            background: #e8f4fd;
-            border: 1px solid #bee5eb;
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 20px;
+
+        .step-indicator {
+            display: flex;
+            justify-content: center;
+            margin: 30px 0;
         }
-        
-        .sync-option {
+
+        .step {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: rgba(102, 126, 234, 0.2);
+            color: #666;
             display: flex;
             align-items: center;
-            padding: 15px;
-            margin-bottom: 10px;
-            background: white;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            border: 2px solid transparent;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+            margin: 0 10px;
+            position: relative;
         }
-        
-        .sync-option:hover {
-            border-color: #06C755;
-            transform: translateY(-2px);
+
+        .step.active {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
         }
-        
-        .sync-option.selected {
-            border-color: #06C755;
-            background: #f0fff4;
+
+        .step.completed {
+            background: linear-gradient(135deg, #4ecdc4, #44a08d);
+            color: white;
         }
-        
-        .sync-option input[type="radio"] {
-            margin-right: 15px;
-            transform: scale(1.2);
+
+        .step::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 100%;
+            transform: translateY(-50%);
+            width: 40px;
+            height: 2px;
+            background: rgba(102, 126, 234, 0.2);
+            z-index: -1;
         }
-        
-        .option-content {
-            flex: 1;
-            text-align: left;
-        }
-        
-        .option-title {
-            font-weight: 600;
-            margin-bottom: 5px;
-        }
-        
-        .option-desc {
-            font-size: 13px;
-            color: #666;
-            line-height: 1.4;
-        }
-        
-        .manual-input {
+
+        .step:last-child::after {
             display: none;
-            margin-top: 15px;
         }
-        
-        .manual-input.show {
-            display: block;
-            animation: fadeIn 0.3s ease;
+
+        .step.completed::after {
+            background: #4ecdc4;
         }
-        
+
+        .form-section {
+            margin-bottom: 25px;
+        }
+
         .form-group {
-            margin-bottom: 15px;
-            text-align: left;
+            margin-bottom: 20px;
         }
-        
-        .form-group label {
+
+        label {
             display: block;
+            color: #333;
+            font-size: 14px;
             font-weight: 600;
             margin-bottom: 8px;
-            color: #333;
         }
-        
-        .form-group input {
+
+        input[type="text"],
+        input[type="password"],
+        select {
             width: 100%;
-            padding: 12px 16px;
-            border: 2px solid #e1e5e9;
-            border-radius: 8px;
+            padding: 12px 15px;
+            border: 2px solid rgba(102, 126, 234, 0.2);
+            border-radius: 10px;
             font-size: 16px;
-            transition: border-color 0.3s ease;
+            background: rgba(255, 255, 255, 0.8);
+            transition: all 0.3s ease;
         }
-        
-        .form-group input:focus {
+
+        input[type="text"]:focus,
+        input[type="password"]:focus,
+        select:focus {
             outline: none;
-            border-color: #06C755;
+            border-color: #667eea;
+            background: white;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
-        
+
+        .sync-method-selector {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .sync-method {
+            padding: 15px;
+            border: 2px solid rgba(102, 126, 234, 0.2);
+            border-radius: 10px;
+            text-align: center;
+            cursor: pointer;
+            background: rgba(255, 255, 255, 0.8);
+            transition: all 0.3s ease;
+        }
+
+        .sync-method.selected {
+            border-color: #667eea;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+        }
+
+        .sync-method-icon {
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+
+        .sync-method-title {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .sync-method-desc {
+            font-size: 12px;
+            color: #666;
+            line-height: 1.3;
+        }
+
         .btn {
             width: 100%;
-            padding: 14px;
+            padding: 15px;
             border: none;
             border-radius: 10px;
             font-size: 16px;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.3s ease;
-            margin-bottom: 10px;
-        }
-        
-        .btn-primary {
-            background: linear-gradient(135deg, #06C755 0%, #00B900 100%);
-            color: white;
-        }
-        
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(6, 199, 85, 0.3);
-        }
-        
-        .btn-primary:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
-        }
-        
-        .btn-secondary {
-            background: #f8f9fa;
-            color: #666;
-            border: 2px solid #e1e5e9;
-        }
-        
-        .loading {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid #ffffff;
-            border-radius: 50%;
-            border-top-color: transparent;
-            animation: spin 1s ease-in-out infinite;
-        }
-        
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        
-        .success-icon {
-            width: 80px;
-            height: 80px;
-            background: #06C755;
-            border-radius: 50%;
-            margin: 0 auto 20px;
+            margin-bottom: 15px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 40px;
+            gap: 10px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea, #764ba2);
             color: white;
         }
-        
-        .error-message {
-            background: #ffe6e6;
-            color: #d63031;
-            padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            font-size: 14px;
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.8);
+            color: #333;
+            border: 2px solid #ddd;
         }
-        
-        .info-box {
-            background: #e8f4fd;
-            border: 1px solid #bee5eb;
-            border-radius: 8px;
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 30px 20px;
+            color: #666;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(102, 126, 234, 0.3);
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .message {
             padding: 15px;
-            margin-bottom: 20px;
-        }
-        
-        .info-box h3 {
-            color: #0c5460;
-            margin-bottom: 8px;
-            font-size: 16px;
-        }
-        
-        .info-box p {
-            color: #0c5460;
-            font-size: 14px;
-            line-height: 1.5;
-        }
-        
-        .account-match {
-            background: #f0fff4;
-            border: 2px solid #06C755;
             border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .success {
+            background: linear-gradient(135deg, #4ecdc4, #44a08d);
+            color: white;
+        }
+
+        .error {
+            background: linear-gradient(135deg, #ff9a9e, #fad0c4);
+            color: #d63031;
+        }
+
+        .warning {
+            background: linear-gradient(135deg, #ffeaa7, #fab1a0);
+            color: #e17055;
+        }
+
+        .info {
+            background: linear-gradient(135deg, #74b9ff, #0984e3);
+            color: white;
+        }
+
+        .hidden { display: none; }
+
+        .account-info {
+            background: rgba(255, 255, 255, 0.7);
+            border-radius: 15px;
             padding: 20px;
             margin-bottom: 20px;
         }
-        
-        .match-header {
+
+        .account-row {
             display: flex;
+            justify-content: space-between;
             align-items: center;
-            margin-bottom: 15px;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
         }
-        
-        .match-icon {
-            width: 40px;
-            height: 40px;
-            background: #06C755;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-size: 20px;
-            margin-right: 15px;
+
+        .account-row:last-child {
+            border-bottom: none;
         }
-        
-        .match-title {
-            font-size: 18px;
-            font-weight: 600;
-            color: #06C755;
-        }
-        
-        .account-details {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
-            margin-bottom: 15px;
-        }
-        
-        .detail-item {
-            text-align: center;
-            padding: 10px;
-            background: white;
-            border-radius: 8px;
-        }
-        
-        .detail-label {
-            font-size: 12px;
+
+        .account-label {
             color: #666;
-            margin-bottom: 5px;
+            font-size: 14px;
+            font-weight: 500;
         }
-        
-        .detail-value {
-            font-size: 16px;
-            font-weight: 600;
+
+        .account-value {
             color: #333;
+            font-size: 14px;
+            font-weight: 600;
         }
-        
+
         .progress-bar {
-            height: 4px;
-            background: #f0f0f0;
-            border-radius: 2px;
-            margin-bottom: 20px;
+            width: 100%;
+            height: 6px;
+            background: rgba(102, 126, 234, 0.2);
+            border-radius: 3px;
             overflow: hidden;
+            margin: 20px 0;
         }
-        
+
         .progress-fill {
             height: 100%;
-            background: linear-gradient(90deg, #06C755, #00B900);
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            border-radius: 3px;
             transition: width 0.3s ease;
-        }
-
-        .debug-info {
-            background: #f8f9fa;
-            border: 1px solid #dee2e6;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 20px;
-            font-size: 12px;
-            text-align: left;
-        }
-        
-        .debug-info pre {
-            background: #e9ecef;
-            padding: 10px;
-            border-radius: 4px;
-            overflow-x: auto;
-            margin: 5px 0;
-        }
-
-        .warning-box {
-            background: #fff3cd;
-            border: 1px solid #ffeaa7;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 20px;
-            color: #856404;
-        }
-        
-        @media (max-width: 480px) {
-            .container {
-                margin: 10px;
-                border-radius: 15px;
-            }
-            
-            .header {
-                padding: 20px 15px;
-            }
-            
-            .content {
-                padding: 20px 15px;
-            }
-            
-            .account-details {
-                grid-template-columns: 1fr;
-            }
+            width: 0%;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>🔗 เชื่อมโยงบัญชี</h1>
-            <p>เชื่อมโยงบัญชี Prima789 กับ LINE Profile ของคุณ</p>
+        <!-- Loading State -->
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>กำลังโหลด...</p>
         </div>
-        
-        <div class="content">
-            <div class="progress-bar">
-                <div class="progress-fill" id="progressFill" style="width: 25%;"></div>
-            </div>
-            
-            <!-- Step 1: Show LINE Profile -->
-            <div class="step active" id="step1">
-                <div class="info-box">
-                    <h3>📱 ข้อมูล LINE Profile</h3>
-                    <p>ระบบจะใช้ข้อมูลจาก LINE ของคุณในการค้นหาและเชื่อมโยงบัญชี Prima789</p>
-                </div>
+
+        <!-- Header -->
+        <div id="header" class="header hidden">
+            <div class="logo">P</div>
+            <h1>เชื่อมต่อบัญชี</h1>
+            <p class="subtitle">เชื่อมต่อบัญชี Prima789 กับ LINE ของคุณ</p>
+        </div>
+
+        <!-- Step Indicator -->
+        <div id="stepIndicator" class="step-indicator hidden">
+            <div class="step active" id="step1">1</div>
+            <div class="step" id="step2">2</div>
+            <div class="step" id="step3">3</div>
+        </div>
+
+        <!-- Messages -->
+        <div id="successMessage" class="message success hidden">
+            <div style="font-size: 24px; margin-bottom: 10px;">✅</div>
+            <div><strong>เชื่อมต่อสำเร็จ!</strong></div>
+            <div>บัญชี Prima789 ของคุณถูกเชื่อมต่อกับ LINE แล้ว</div>
+        </div>
+
+        <div id="errorMessage" class="message error hidden">
+            <div style="font-size: 24px; margin-bottom: 10px;">❌</div>
+            <div id="errorText">เกิดข้อผิดพลาด</div>
+        </div>
+
+        <div id="warningMessage" class="message warning hidden">
+            <div style="font-size: 24px; margin-bottom: 10px;">⚠️</div>
+            <div id="warningText">คำเตือน</div>
+        </div>
+
+        <div id="infoMessage" class="message info hidden">
+            <div style="font-size: 24px; margin-bottom: 10px;">ℹ️</div>
+            <div id="infoText">ข้อมูล</div>
+        </div>
+
+        <!-- Step 1: Choose Sync Method -->
+        <div id="step1Content" class="hidden">
+            <div class="form-section">
+                <h3 style="margin-bottom: 20px; color: #333;">เลือกวิธีการเชื่อมต่อ</h3>
                 
-                <div class="user-profile" id="userProfileDisplay">
-                    <div class="loading" style="margin: 20px auto;"></div>
-                    <p>กำลังโหลดข้อมูล LINE Profile...</p>
+                <div class="sync-method-selector">
+                    <div class="sync-method" data-method="manual">
+                        <div class="sync-method-icon">👤</div>
+                        <div class="sync-method-title">Manual Sync</div>
+                        <div class="sync-method-desc">กรอกข้อมูลด้วยตนเอง</div>
+                    </div>
+                    <div class="sync-method selected" data-method="auto">
+                        <div class="sync-method-icon">🔄</div>
+                        <div class="sync-method-title">Auto Sync</div>
+                        <div class="sync-method-desc">ตรวจจับอัตโนมัติ</div>
+                    </div>
                 </div>
 
-                <!-- Debug Information -->
-                <div class="debug-info" id="debugInfo" style="display: none;">
-                    <h4>Debug Information:</h4>
-                    <div id="debugContent"></div>
-                </div>
-                
-                <button class="btn btn-primary" id="continueBtn" onclick="searchPrima789Account()" disabled>
-                    <span id="continueText">ค้นหาบัญชี Prima789</span>
-                    <span id="continueLoading" class="loading" style="display: none;"></span>
+                <button class="btn btn-primary" id="nextStep1">
+                    ถัดไป <span>→</span>
                 </button>
             </div>
-            
-            <!-- Step 2: Sync Method Selection -->
-            <div class="step" id="step2">
-                <div class="info-box">
-                    <h3>🔍 วิธีการเชื่อมโยงบัญชี</h3>
-                    <p>เลือกวิธีที่คุณต้องการใช้ในการเชื่อมโยงบัญชี Prima789</p>
-                </div>
-                
-                <div class="sync-options">
-                    <div class="sync-option" onclick="selectSyncMethod('auto')">
-                        <input type="radio" name="syncMethod" value="auto" id="autoSync">
-                        <div class="option-content">
-                            <div class="option-title">🤖 เชื่อมโยงอัตโนมัติ</div>
-                            <div class="option-desc">ใช้เบอร์โทรศัพท์จาก LINE Profile ค้นหาบัญชี Prima789</div>
-                        </div>
-                    </div>
+        </div>
+
+        <!-- Step 2: Manual Input / Auto Detection -->
+        <div id="step2Content" class="hidden">
+            <!-- Manual Input Form -->
+            <div id="manualForm" class="hidden">
+                <div class="form-section">
+                    <h3 style="margin-bottom: 20px; color: #333;">กรอกข้อมูลบัญชี Prima789</h3>
                     
-                    <div class="sync-option" onclick="selectSyncMethod('manual')">
-                        <input type="radio" name="syncMethod" value="manual" id="manualSync">
-                        <div class="option-content">
-                            <div class="option-title">✋ กรอกข้อมูลด้วยตนเอง</div>
-                            <div class="option-desc">กรอก Username Prima789 ที่ต้องการเชื่อมโยง</div>
-                        </div>
-                    </div>
-                    
-                    <div class="sync-option" onclick="selectSyncMethod('socket')">
-                        <input type="radio" name="syncMethod" value="socket" id="socketSync">
-                        <div class="option-content">
-                            <div class="option-title">🔌 Real-time Sync</div>
-                            <div class="option-desc">เชื่อมโยงผ่านการล็อกอิน Prima789.com (แนะนำ)</div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="manual-input" id="manualInputSection">
                     <div class="form-group">
-                        <label for="username">Username Prima789</label>
-                        <input type="text" id="username" placeholder="กรอก username ของคุณ">
+                        <label for="username">ชื่อผู้ใช้ (Username)</label>
+                        <input type="text" id="username" placeholder="กรอกชื่อผู้ใช้">
                     </div>
+
+                    <div class="form-group">
+                        <label for="password">รหัสผ่าน (Password)</label>
+                        <input type="password" id="password" placeholder="กรอกรหัสผ่าน">
+                    </div>
+
+                    <button class="btn btn-primary" id="verifyManual">
+                        <span id="verifyIcon">🔍</span> ตรวจสอบบัญชี
+                    </button>
                 </div>
-                
-                <div id="errorMessage" class="error-message" style="display: none;"></div>
-                
-                <button class="btn btn-primary" onclick="processSyncMethod()" disabled id="processBtn">
-                    <span id="processText">ดำเนินการเชื่อมโยง</span>
-                    <span id="processLoading" class="loading" style="display: none;"></span>
-                </button>
-                
-                <button class="btn btn-secondary" onclick="goBack()">
-                    กลับไปแก้ไข
-                </button>
             </div>
-            
-            <!-- Step 3: Account Found/Confirmation -->
-            <div class="step" id="step3">
-                <div class="account-match" id="accountMatchDisplay" style="display: none;">
-                    <div class="match-header">
-                        <div class="match-icon">✅</div>
-                        <div class="match-title">พบบัญชี Prima789!</div>
-                    </div>
+
+            <!-- Auto Detection -->
+            <div id="autoDetection">
+                <div class="form-section">
+                    <h3 style="margin-bottom: 20px; color: #333;">ตรวจจับบัญชีอัตโนมัติ</h3>
                     
-                    <div class="account-details" id="accountDetails">
-                        <!-- Account details will be populated here -->
+                    <p style="color: #666; margin-bottom: 20px; line-height: 1.5;">
+                        เปิดเว็บไซต์ Prima789 แล้วเข้าสู่ระบบ ระบบจะตรวจจับบัญชีของคุณโดยอัตโนมัติ
+                    </p>
+
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
                     </div>
-                    
-                    <div style="font-size: 14px; color: #666; text-align: center;">
-                        กรุณาตรวจสอบข้อมูลก่อนยืนยันการเชื่อมโยง
+
+                    <div id="detectionStatus" class="info">
+                        <div>🔍 กำลังค้นหาบัญชี Prima789...</div>
+                    </div>
+
+                    <button class="btn btn-primary" id="startAutoDetection">
+                        🚀 เริ่มตรวจจับ
+                    </button>
+
+                    <button class="btn btn-secondary" id="switchToManual">
+                        👤 เปลี่ยนเป็นการกรอกด้วยตนเอง
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 3: Account Confirmation -->
+        <div id="step3Content" class="hidden">
+            <div class="form-section">
+                <h3 style="margin-bottom: 20px; color: #333;">ยืนยันข้อมูลบัญชี</h3>
+                
+                <div class="account-info" id="accountInfo">
+                    <div class="account-row">
+                        <span class="account-label">ชื่อผู้ใช้:</span>
+                        <span class="account-value" id="confirmUsername">-</span>
+                    </div>
+                    <div class="account-row">
+                        <span class="account-label">ชื่อ-นามสกุล:</span>
+                        <span class="account-value" id="confirmFullName">-</span>
+                    </div>
+                    <div class="account-row">
+                        <span class="account-label">เบอร์โทร:</span>
+                        <span class="account-value" id="confirmPhone">-</span>
+                    </div>
+                    <div class="account-row">
+                        <span class="account-label">อีเมล:</span>
+                        <span class="account-value" id="confirmEmail">-</span>
+                    </div>
+                    <div class="account-row">
+                        <span class="account-label">ธนาคาร:</span>
+                        <span class="account-value" id="confirmBank">-</span>
+                    </div>
+                    <div class="account-row">
+                        <span class="account-label">สมาชิกตั้งแต่:</span>
+                        <span class="account-value" id="confirmMemberSince">-</span>
                     </div>
                 </div>
-                
-                <div class="info-box" id="socketWaitingBox" style="display: none;">
-                    <h3>⏳ รอการเชื่อมโยง</h3>
-                    <p>กรุณาเข้าสู่ระบบ Prima789.com ในบราวเซอร์เพื่อทำการเชื่อมโยงอัตโนมัติ</p>
-                    <div style="text-align: center; margin-top: 15px;">
-                        <button class="btn btn-secondary" onclick="openPrima789Login()" style="margin-bottom: 10px;">
-                            เปิด Prima789.com
-                        </button>
-                        <div style="font-size: 12px; color: #666;">
-                            ระบบจะเชื่อมโยงอัตโนมัติเมื่อคุณล็อกอินสำเร็จ
-                        </div>
-                    </div>
-                </div>
-                
-                <button class="btn btn-primary" onclick="confirmLinking()" id="confirmBtn">
-                    <span id="confirmText">ยืนยันการเชื่อมโยง</span>
-                    <span id="confirmLoading" class="loading" style="display: none;"></span>
+
+                <button class="btn btn-primary" id="confirmLinking">
+                    ✅ ยืนยันการเชื่อมต่อ
                 </button>
-                
-                <button class="btn btn-secondary" onclick="goBackToMethod()">
-                    เลือกวิธีใหม่
+
+                <button class="btn btn-secondary" id="backToStep2">
+                    ← กลับไปแก้ไข
                 </button>
             </div>
-            
-            <!-- Step 4: Success -->
-            <div class="step" id="step4">
-                <div class="success-icon">✅</div>
-                <h2 style="margin-bottom: 15px;">เชื่อมโยงสำเร็จ!</h2>
-                <p style="margin-bottom: 25px; color: #666; line-height: 1.6;">
-                    ยินดีด้วย! บัญชี Prima789 ของคุณได้เชื่อมโยงกับ LINE เรียบร้อยแล้ว
-                </p>
-                
-                <div style="background: #f0fff4; border-radius: 10px; padding: 20px; margin-bottom: 20px;">
-                    <h3 style="color: #06C755; margin-bottom: 10px;">🎉 สิทธิประโยชน์ที่ได้รับ</h3>
-                    <ul style="list-style: none; padding: 0; color: #333;">
-                        <li style="padding: 5px 0;">💳 เข้าถึง Member Card ผ่าน LINE</li>
-                        <li style="padding: 5px 0;">🔔 รับแจ้งเตือนธุรกรรมแบบ Real-time</li>
-                        <li style="padding: 5px 0;">📊 ตรวจสอบยอดเงินและคะแนนได้ง่าย</li>
-                        <li style="padding: 5px 0;">🎁 รับโปรโมชั่นพิเศษก่อนใคร</li>
-                    </ul>
-                </div>
-                
-                <button class="btn btn-primary" onclick="openMemberCard()">
-                    เปิด Member Card
-                </button>
-                
-                <button class="btn btn-secondary" onclick="closeLIFF()">
-                    ปิดหน้าต่าง
-                </button>
-            </div>
+        </div>
+
+        <!-- Success Actions -->
+        <div id="successActions" class="hidden">
+            <button class="btn btn-primary" id="openMemberCard">
+                📱 ไปที่ Member Card
+            </button>
+            <button class="btn btn-secondary" id="closeLiff">
+                ✅ เสร็จสิ้น
+            </button>
         </div>
     </div>
 
     <script>
+        // Global variables
         let userProfile = null;
-        let selectedSyncMethod = null;
+        let currentStep = 1;
+        let selectedSyncMethod = 'auto';
+        let detectionInterval = null;
         let foundAccount = null;
-        let socketConnection = null;
-        let isLIFFAvailable = false;
-        let isMockMode = false;
+        let isMockMode = true; // Set to false when API is ready
 
-        // Mock data สำหรับการทดสอบ
-        const mockUserProfile = {
-            userId: 'U' + Math.random().toString(36).substr(2, 32),
-            displayName: 'สมชาย ดีใจ',
-            pictureUrl: 'https://via.placeholder.com/150/06C755/FFFFFF?text=User',
-            statusMessage: 'Hello LINE!',
-            language: 'th'
-        };
-
+        // Mock account data for testing
         const mockAccounts = [
             {
-                username: 'user123456',
-                displayName: 'สมชาย ดีใจ',
-                balance: 25680,
-                tier: 'Gold',
-                phone: '081-234-5678',
-                email: 'user@example.com',
-                registrationDate: '2023-01-15',
-                lastLogin: '2024-12-18 14:30:00'
+                username: "player123",
+                fullName: "สมชาย ใจดี", 
+                phoneNumber: "081-234-5678",
+                email: "somchai@email.com",
+                bank: "ธนาคารกรุงเทพ",
+                accountNumber: "123-4-56789-0",
+                memberSince: "2023-01-15",
+                balance: 15420.75,
+                tier: "Gold",
+                points: 12850
             },
             {
-                username: 'vipgamer99',
-                displayName: 'สมชาย VIP',
-                balance: 155000,
-                tier: 'Diamond',
-                phone: '089-876-5432',
-                email: 'vip@example.com',
-                registrationDate: '2022-05-20',
-                lastLogin: '2024-12-18 15:45:00'
+                username: "winner789",
+                fullName: "สมหญิง รวย",
+                phoneNumber: "089-876-5432", 
+                email: "somying@email.com",
+                bank: "ธนาคารไทยพาณิชย์",
+                accountNumber: "987-6-54321-0",
+                memberSince: "2023-03-20",
+                balance: 8750.25,
+                tier: "Silver", 
+                points: 5420
             }
         ];
-        
-        // Initialize application
-        document.addEventListener('DOMContentLoaded', async () => {
-            await initializeApp();
-        });
 
-        async function initializeApp() {
-            try {
-                // ตรวจสอบว่า LIFF SDK โหลดได้หรือไม่
-                if (typeof liff !== 'undefined') {
-                    await initializeLIFF();
-                } else {
-                    console.warn('LIFF SDK not available, switching to mock mode');
-                    initializeMockMode();
-                }
-            } catch (error) {
-                console.error('App initialization error:', error);
-                showDebugInfo('App Init Error', error);
-                initializeMockMode();
-            }
+        // Utility functions
+        function delay(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
         }
 
-        async function initializeLIFF() {
-            try {
-                // Use a valid LIFF ID or mock for testing
-                const liffId = '2008090006-ZMGmoOla'; // Replace with actual LIFF ID
-                
-                await liff.init({ liffId: liffId });
-                
-                if (!liff.isLoggedIn()) {
-                    if (liff.isInClient()) {
-                        liff.login();
-                    } else {
-                        // Not in LINE client, use mock mode
-                        showWarning('กรุณาเปิดใน LINE app เพื่อใช้งานจริง ตอนนี้ใช้โหมดทดสอบ');
-                        initializeMockMode();
-                    }
-                    return;
-                }
-                
-                // Get user profile
-                userProfile = await liff.getProfile();
-                isLIFFAvailable = true;
-                
-                showDebugInfo('LIFF Profile', userProfile);
-                console.log('LIFF Profile loaded:', userProfile);
-                
-                displayUserProfile();
-                await checkExistingLink();
-                
-            } catch (error) {
-                console.error('LIFF initialization error:', error);
-                showDebugInfo('LIFF Error', error);
-                showWarning('ไม่สามารถเชื่อมต่อ LIFF ได้ ใช้โหมดทดสอบแทน');
-                initializeMockMode();
-            }
+        function formatDateTime(dateString) {
+            return new Intl.DateTimeFormat('th-TH', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            }).format(new Date(dateString));
         }
 
-        function initializeMockMode() {
-            isMockMode = true;
-            userProfile = mockUserProfile;
-            
-            showDebugInfo('Mock Mode', { 
-                message: 'Running in mock mode for testing',
-                profile: userProfile 
-            });
-            
-            console.log('Mock mode initialized with profile:', userProfile);
-            
-            // Simulate loading delay
-            setTimeout(() => {
-                displayUserProfile();
-                checkExistingLink();
-            }, 1000);
+        // UI functions
+        function showLoading(show = true) {
+            document.getElementById('loading').classList.toggle('hidden', !show);
+        }
+
+        function showSuccess(message) {
+            hideAllMessages();
+            if (message) {
+                document.querySelector('#successMessage div:last-child').textContent = message;
+            }
+            document.getElementById('successMessage').classList.remove('hidden');
+        }
+
+        function showError(message) {
+            hideAllMessages();
+            document.getElementById('errorText').textContent = message;
+            document.getElementById('errorMessage').classList.remove('hidden');
         }
 
         function showWarning(message) {
-            const warningHtml = `
-                <div class="warning-box">
-                    <strong>⚠️ โหมดทดสอบ</strong><br>
-                    ${message}
-                </div>
-            `;
-            
-            // Insert warning at the top of content
-            const content = document.querySelector('.content');
-            content.insertAdjacentHTML('afterbegin', warningHtml);
+            hideAllMessages();
+            document.getElementById('warningText').textContent = message;
+            document.getElementById('warningMessage').classList.remove('hidden');
         }
 
-        function showDebugInfo(title, data) {
-            const debugInfo = document.getElementById('debugInfo');
-            const debugContent = document.getElementById('debugContent');
-            
-            const debugHtml = `
-                <div style="margin-bottom: 10px;">
-                    <strong>${title}:</strong>
-                    <pre>${JSON.stringify(data, null, 2)}</pre>
-                </div>
-            `;
-            
-            debugContent.innerHTML += debugHtml;
-            debugInfo.style.display = 'block';
+        function showInfo(message) {
+            hideAllMessages();
+            document.getElementById('infoText').textContent = message;
+            document.getElementById('infoMessage').classList.remove('hidden');
         }
-        
-        function displayUserProfile() {
-            const defaultAvatar = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjE1MCIgdmlld0JveD0iMCAwIDEwMCAxMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iNTAiIGN5PSI1MCIgcj0iNTAiIGZpbGw9IiMwNkM3NTUiLz48Y2lyY2xlIGN4PSI1MCIgY3k9IjM1IiByPSIxNSIgZmlsbD0id2hpdGUiLz48cGF0aCBkPSJNMjAgNzVjMC0xNiAxMy00MyAzMC00M3MzMCAyNyAzMCA0MyIgZmlsbD0id2hpdGUiLz48L3N2Zz4=';
-            
-            const profileHtml = `
-                <img src="${userProfile.pictureUrl || defaultAvatar}" 
-                     alt="Profile" class="profile-avatar" 
-                     onerror="this.src='${defaultAvatar}'">
-                <div class="profile-name">${userProfile.displayName}</div>
-                <div class="profile-id">ID: ${userProfile.userId.substring(0, 20)}...</div>
-                ${isMockMode ? '<div style="color: #ff9800; font-size: 12px; margin-top: 5px;">โหมดทดสอบ</div>' : ''}
-            `;
-            
-            document.getElementById('userProfileDisplay').innerHTML = profileHtml;
-            document.getElementById('continueBtn').disabled = false;
+
+        function hideAllMessages() {
+            document.querySelectorAll('.message').forEach(msg => {
+                msg.classList.add('hidden');
+            });
         }
-        
+
+        function updateStepIndicator(step) {
+            document.querySelectorAll('.step').forEach((stepEl, index) => {
+                stepEl.classList.remove('active', 'completed');
+                if (index + 1 < step) {
+                    stepEl.classList.add('completed');
+                } else if (index + 1 === step) {
+                    stepEl.classList.add('active');
+                }
+            });
+        }
+
+        function showStep(step) {
+            // Hide all step contents
+            document.querySelectorAll('[id*="step"][id*="Content"]').forEach(content => {
+                content.classList.add('hidden');
+            });
+            
+            // Show current step
+            document.getElementById(`step${step}Content`).classList.remove('hidden');
+            
+            // Update step indicator
+            updateStepIndicator(step);
+            currentStep = step;
+        }
+
+        // API functions - แก้ไขใช้ apiCall แทน makeApiCall
+        async function apiCall(endpoint, options = {}) {
+            const baseUrl = window.location.origin;
+            const url = endpoint.startsWith('http') ? endpoint : `${baseUrl}/.netlify/functions${endpoint}`;
+            
+            console.log(`API Call: ${url}`, options.method || 'GET');
+            
+            try {
+                const response = await fetch(url, {
+                    method: options.method || 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...options.headers
+                    },
+                    body: options.body
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                console.log(`API Response: ${url}`, data);
+                
+                return { json: async () => data };
+                
+            } catch (error) {
+                console.error(`API Error: ${url}`, error);
+                
+                // Fallback to mock for demo purposes
+                if (window.location.hostname === 'localhost' || window.location.hostname.includes('.netlify.app')) {
+                    console.warn('API call failed, using mock response for demo');
+                    return mockApiCall(endpoint, options);
+                }
+                
+                throw error;
+            }
+        }
+
+        // Mock API function (fallback for demo)
+        async function mockApiCall(endpoint, options = {}) {
+            console.log(`Mock API Call: ${endpoint}`, options);
+            
+            await delay(500 + Math.random() * 1000);
+            
+            let mockResponse;
+            
+            switch (endpoint) {
+                case '/check-account-linking':
+                    mockResponse = {
+                        success: true,
+                        isLinked: Math.random() > 0.8,
+                        data: mockAccounts[0]
+                    };
+                    break;
+                case '/link-prima789-account':
+                    const data = JSON.parse(options.body || '{}');
+                    if (data.syncMethod === 'manual') {
+                        const account = mockAccounts.find(acc => 
+                            acc.username.toLowerCase().includes((data.username || '').toLowerCase())
+                        );
+                        mockResponse = {
+                            success: !!account,
+                            accountFound: !!account,
+                            account: account,
+                            message: account ? 
+                                'ตรวจสอบบัญชีสำเร็จ' : 
+                                'ไม่พบบัญชีที่ตรงกับข้อมูลที่กรอก'
+                        };
+                    } else {
+                        // Auto detection
+                        const account = mockAccounts[Math.floor(Math.random() * mockAccounts.length)];
+                        mockResponse = {
+                            success: Math.random() > 0.3,
+                            accountFound: true,
+                            account: account,
+                            message: 'ตรวจจับบัญชีสำเร็จ'
+                        };
+                    }
+                    break;
+                case '/confirm-account-linking':
+                    mockResponse = {
+                        success: Math.random() > 0.1,
+                        message: 'เชื่อมต่อบัญชีสำเร็จแล้ว'
+                    };
+                    break;
+                default:
+                    mockResponse = { success: false, message: 'Unknown endpoint' };
+            }
+            
+            return { json: async () => mockResponse };
+        }
+
+        // Account linking functions
         async function checkExistingLink() {
             try {
-                if (isMockMode) {
-                    // Mock: randomly decide if already linked
-                    const isLinked = Math.random() > 0.8; // 20% chance already linked
-                    if (isLinked) {
-                        setTimeout(() => {
-                            showStep(4);
-                            setProgress(100);
-                        }, 1000);
-                    }
-                    return;
-                }
-
-                const response = await mockApiCall('/api/check-account-linking', {
-                    method: 'GET',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    }
+                const response = await apiCall('/check-account-linking', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        lineUserId: userProfile.userId
+                    })
                 });
                 
                 const result = await response.json();
                 
                 if (result.success && result.isLinked) {
-                    showStep(4);
-                    setProgress(100);
+                    showSuccess('บัญชีของคุณถูกเชื่อมต่อแล้ว');
+                    document.getElementById('successActions').classList.remove('hidden');
+                    return true;
                 }
+                
+                return false;
                 
             } catch (error) {
                 console.error('Error checking existing link:', error);
+                return false;
             }
         }
-        
-        async function searchPrima789Account() {
-            showLoading('continue', true);
-            setProgress(50);
+
+        async function verifyManualAccount() {
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value.trim();
+            
+            if (!username || !password) {
+                showWarning('กรุณากรอกชื่อผู้ใช้และรหัสผ่าน');
+                return;
+            }
             
             try {
-                await delay(1500); // Simulate API delay
+                hideAllMessages();
                 
-                const response = await mockApiCall('/api/search-prima789-account', {
+                const verifyBtn = document.getElementById('verifyManual');
+                const verifyIcon = document.getElementById('verifyIcon');
+                
+                verifyBtn.disabled = true;
+                verifyIcon.textContent = '⏳';
+                
+                await delay(2000); // Simulate API call
+                
+                const response = await apiCall('/link-prima789-account', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
                     body: JSON.stringify({
                         lineUserId: userProfile.userId,
-                        displayName: userProfile.displayName,
-                        pictureUrl: userProfile.pictureUrl
+                        syncMethod: 'manual',
+                        username: username,
+                        password: password
                     })
                 });
                 
@@ -777,445 +778,273 @@
                 
                 if (result.success && result.accountFound) {
                     foundAccount = result.account;
-                    displayFoundAccount();
+                    displayAccountConfirmation();
                     showStep(3);
-                    setProgress(75);
                 } else {
-                    showStep(2);
-                    setProgress(50);
+                    showError(result.message || 'ไม่พบบัญชีที่ตรงกับข้อมูลที่กรอก');
                 }
                 
             } catch (error) {
-                console.error('Error searching account:', error);
-                showError('เกิดข้อผิดพลาดในการค้นหาบัญชี กรุณาลองใหม่อีกครั้ง');
+                console.error('Error verifying account:', error);
+                showError('เกิดข้อผิดพลาดในการตรวจสอบบัญชี');
+            } finally {
+                const verifyBtn = document.getElementById('verifyManual');
+                const verifyIcon = document.getElementById('verifyIcon');
+                
+                verifyBtn.disabled = false;
+                verifyIcon.textContent = '🔍';
             }
-            
-            showLoading('continue', false);
-        }
-        
-        function selectSyncMethod(method) {
-            selectedSyncMethod = method;
-            
-            // Update radio buttons
-            document.querySelectorAll('input[name="syncMethod"]').forEach(radio => {
-                radio.checked = radio.value === method;
-            });
-            
-            // Update visual selection
-            document.querySelectorAll('.sync-option').forEach(option => {
-                option.classList.remove('selected');
-            });
-            event.currentTarget.classList.add('selected');
-            
-            // Show/hide manual input
-            const manualInput = document.getElementById('manualInputSection');
-            if (method === 'manual') {
-                manualInput.classList.add('show');
-            } else {
-                manualInput.classList.remove('show');
-            }
-            
-            // Enable process button
-            document.getElementById('processBtn').disabled = false;
-        }
-        
-        async function processSyncMethod() {
-            if (!selectedSyncMethod) {
-                showError('กรุณาเลือกวิธีการเชื่อมโยง');
-                return;
-            }
-            
-            showLoading('process', true);
-            hideError();
-            
-            try {
-                let requestData = {
-                    lineUserId: userProfile.userId,
-                    syncMethod: selectedSyncMethod,
-                    userProfile: {
-                        displayName: userProfile.displayName,
-                        pictureUrl: userProfile.pictureUrl
-                    }
-                };
-                
-                if (selectedSyncMethod === 'manual') {
-                    const username = document.getElementById('username').value.trim();
-                    if (!username) {
-                        showError('กรุณากรอก Username Prima789');
-                        showLoading('process', false);
-                        return;
-                    }
-                    requestData.username = username;
-                }
-                
-                const result = await makeApiCall(API_CONFIG.ENDPOINTS.SEARCH_ACCOUNT, {
-                    method: 'POST',
-                    body: JSON.stringify(requestData)
-                });
-                
-                if (!result.success) {
-                    throw new Error(result.error || 'ไม่สามารถประมวลผลได้');
-                }
-                
-                if (result.data.accountFound) {
-                    foundAccount = result.data.account;
-                    displayFoundAccount();
-                    showStep(3);
-                    setProgress(75);
-                } else if (selectedSyncMethod === 'socket') {
-                    // Handle socket sync
-                    setupSocketSync();
-                    showStep(3);
-                    setProgress(75);
-                } else {
-                    showError(result.data.message || 'ไม่พบบัญชี Prima789 ที่ตรงกัน');
-                }
-                
-            } catch (error) {
-                console.error('Error processing sync method:', error);
-                showError(error.message || 'เกิดข้อผิดพลาดในการดำเนินการ');
-            }
-            
-            showLoading('process', false);
         }
 
-        function displayFoundAccount() {
-            document.getElementById('accountMatchDisplay').style.display = 'block';
-            document.getElementById('socketWaitingBox').style.display = 'none';
-            document.getElementById('confirmBtn').style.display = 'block';
-            
-            const detailsHtml = `
-                <div class="detail-item">
-                    <div class="detail-label">Username</div>
-                    <div class="detail-value">${foundAccount.username}</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">ชื่อ-สกุล</div>
-                    <div class="detail-value">${foundAccount.displayName}</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">ยอดเงิน</div>
-                    <div class="detail-value" style="color: #06C755;">฿${foundAccount.balance.toLocaleString()}</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">ระดับสมาชิก</div>
-                    <div class="detail-value" style="color: ${getTierColor(foundAccount.tier)};">${foundAccount.tier}</div>
-                </div>
-            `;
-            
-            document.getElementById('accountDetails').innerHTML = detailsHtml;
-        }
-        
-        function setupSocketSync() {
-            document.getElementById('accountMatchDisplay').style.display = 'none';
-            document.getElementById('socketWaitingBox').style.display = 'block';
-            document.getElementById('confirmBtn').style.display = 'none';
-            
-            startSocketSync();
-        }
-        
-        async function startSocketSync() {
+        async function startAutoDetection() {
             try {
-                await delay(1000);
+                hideAllMessages();
                 
-                const response = await mockApiCall('/api/register-socket-sync', {
+                const startBtn = document.getElementById('startAutoDetection');
+                const progressFill = document.getElementById('progressFill');
+                const detectionStatus = document.getElementById('detectionStatus');
+                
+                startBtn.disabled = true;
+                startBtn.textContent = '⏳ กำลังค้นหา...';
+                
+                let progress = 0;
+                const progressInterval = setInterval(() => {
+                    progress += Math.random() * 15;
+                    if (progress > 90) progress = 90;
+                    progressFill.style.width = progress + '%';
+                }, 300);
+                
+                await delay(3000); // Simulate detection time
+                
+                const response = await apiCall('/link-prima789-account', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
                     body: JSON.stringify({
                         lineUserId: userProfile.userId,
-                        userProfile: userProfile
+                        syncMethod: 'auto'
+                    })
+                });
+                
+                const result = await response.json();
+                
+                clearInterval(progressInterval);
+                progressFill.style.width = '100%';
+                
+                if (result.success && result.accountFound) {
+                    foundAccount = result.account;
+                    detectionStatus.innerHTML = `
+                        <div>✅ พบบัญชี: ${result.account.username}</div>
+                    `;
+                    
+                    await delay(1000);
+                    displayAccountConfirmation();
+                    showStep(3);
+                } else {
+                    detectionStatus.innerHTML = `
+                        <div>❌ ไม่พบบัญชี Prima789</div>
+                    `;
+                    showWarning('ไม่สามารถตรวจจับบัญชีได้ กรุณาลองใหม่หรือใช้การกรอกด้วยตนเอง');
+                }
+                
+            } catch (error) {
+                console.error('Error in auto detection:', error);
+                showError('เกิดข้อผิดพลาดในการตรวจจับบัญชี');
+            } finally {
+                const startBtn = document.getElementById('startAutoDetection');
+                startBtn.disabled = false;
+                startBtn.innerHTML = '🚀 เริ่มตรวจจับ';
+            }
+        }
+
+        function displayAccountConfirmation() {
+            if (!foundAccount) return;
+            
+            document.getElementById('confirmUsername').textContent = foundAccount.username || '-';
+            document.getElementById('confirmFullName').textContent = foundAccount.fullName || '-';
+            document.getElementById('confirmPhone').textContent = foundAccount.phoneNumber || '-';
+            document.getElementById('confirmEmail').textContent = foundAccount.email || '-';
+            document.getElementById('confirmBank').textContent = foundAccount.bank || '-';
+            document.getElementById('confirmMemberSince').textContent = 
+                foundAccount.memberSince ? formatDateTime(foundAccount.memberSince) : '-';
+        }
+
+        async function confirmAccountLinking() {
+            try {
+                hideAllMessages();
+                
+                const confirmBtn = document.getElementById('confirmLinking');
+                confirmBtn.disabled = true;
+                confirmBtn.innerHTML = '⏳ กำลังเชื่อมต่อ...';
+                
+                await delay(2000); // Simulate API call
+                
+                const response = await apiCall('/confirm-account-linking', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        lineUserId: userProfile.userId,
+                        accountData: foundAccount
                     })
                 });
                 
                 const result = await response.json();
                 
                 if (result.success) {
-                    pollSyncStatus(result.syncId);
+                    document.getElementById('step3Content').classList.add('hidden');
+                    document.getElementById('stepIndicator').classList.add('hidden');
+                    showSuccess('เชื่อมต่อบัญชีสำเร็จแล้ว!');
+                    document.getElementById('successActions').classList.remove('hidden');
                 } else {
-                    showError('เกิดข้อผิดพลาดในการเตรียมระบบ Socket Sync');
+                    showError(result.message || 'เกิดข้อผิดพลาดในการเชื่อมต่อ');
                 }
                 
             } catch (error) {
-                console.error('Error starting socket sync:', error);
-                showError('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+                console.error('Error confirming account linking:', error);
+                showError('เกิดข้อผิดพลาดในการยืนยันการเชื่อมต่อ');
+            } finally {
+                const confirmBtn = document.getElementById('confirmLinking');
+                confirmBtn.disabled = false;
+                confirmBtn.innerHTML = '✅ ยืนยันการเชื่อมต่อ';
             }
         }
-        
-        function pollSyncStatus(syncId) {
-            let pollCount = 0;
-            const maxPolls = 20; // 1 minute total
-            
-            const pollInterval = setInterval(async () => {
-                try {
-                    pollCount++;
-                    
-                    const response = await mockApiCall(`/api/check-sync-status?syncId=${syncId}`);
-                    const result = await response.json();
-                    
-                    if (result.success && result.completed) {
-                        clearInterval(pollInterval);
-                        
-                        if (result.accountLinked) {
-                            foundAccount = result.account;
-                            showStep(4);
-                            setProgress(100);
-                            
-                            if (isLIFFAvailable && liff.isInClient()) {
-                                liff.sendMessages([{
-                                    type: 'text',
-                                    text: '✅ เชื่อมโยงบัญชี Prima789 สำเร็จแล้ว!\nตอนนี้คุณสามารถใช้ Member Card ผ่าน LINE ได้เลย'
-                                }]);
-                            }
-                        } else {
-                            showError('ไม่สามารถเชื่อมโยงบัญชีได้ กรุณาลองใหม่อีกครั้ง');
-                        }
-                    } else if (pollCount >= maxPolls) {
-                        clearInterval(pollInterval);
-                        showError('หมดเวลารอการเชื่อมโยง กรุณาลองใหม่อีกครั้ง');
-                    }
-                    
-                } catch (error) {
-                    console.error('Error polling sync status:', error);
-                }
-            }, 3000);
-        }
-        
-        function openPrima789Login() {
-            const url = 'https://prima789.com/login';
-            
-            if (isLIFFAvailable && liff.isInClient()) {
-                liff.openWindow({
-                    url: url,
-                    external: true
-                });
-            } else {
-                window.open(url, '_blank');
-            }
-        }
-        
-        async function confirmLinking() {
 
-            if (!foundAccount) {
-                showError('ไม่พบข้อมูลบัญชี กรุณาลองใหม่อีกครั้ง');
-                return;
-            }
-            
-            showLoading('confirm', true);
-            
+        // Event handlers
+        function setupEventHandlers() {
+            // Sync method selection
+            document.querySelectorAll('.sync-method').forEach(method => {
+                method.addEventListener('click', () => {
+                    document.querySelectorAll('.sync-method').forEach(m => m.classList.remove('selected'));
+                    method.classList.add('selected');
+                    selectedSyncMethod = method.dataset.method;
+                });
+            });
+
+            // Step 1: Next button
+            document.getElementById('nextStep1').addEventListener('click', () => {
+                hideAllMessages();
+                
+                if (selectedSyncMethod === 'manual') {
+                    document.getElementById('manualForm').classList.remove('hidden');
+                    document.getElementById('autoDetection').classList.add('hidden');
+                } else {
+                    document.getElementById('manualForm').classList.add('hidden');
+                    document.getElementById('autoDetection').classList.remove('hidden');
+                }
+                
+                showStep(2);
+            });
+
+            // Step 2: Manual verification
+            document.getElementById('verifyManual').addEventListener('click', verifyManualAccount);
+
+            // Step 2: Auto detection
+            document.getElementById('startAutoDetection').addEventListener('click', startAutoDetection);
+
+            // Step 2: Switch to manual
+            document.getElementById('switchToManual').addEventListener('click', () => {
+                selectedSyncMethod = 'manual';
+                document.getElementById('manualForm').classList.remove('hidden');
+                document.getElementById('autoDetection').classList.add('hidden');
+            });
+
+            // Step 3: Confirm linking
+            document.getElementById('confirmLinking').addEventListener('click', confirmAccountLinking);
+
+            // Step 3: Back to step 2
+            document.getElementById('backToStep2').addEventListener('click', () => {
+                hideAllMessages();
+                showStep(2);
+            });
+
+            // Success actions
+            document.getElementById('openMemberCard').addEventListener('click', () => {
+                if (window.liff && window.liff.isInClient()) {
+                    window.liff.openWindow({
+                        url: 'https://liff.line.me/YOUR_MEMBER_CARD_LIFF_ID',
+                        external: false
+                    });
+                } else {
+                    window.open('/liff-member-card.html', '_blank');
+                }
+            });
+
+            document.getElementById('closeLiff').addEventListener('click', () => {
+                if (window.liff && window.liff.isInClient()) {
+                    window.liff.closeWindow();
+                } else {
+                    window.close();
+                }
+            });
+
+            // Form validation
+            document.getElementById('username').addEventListener('input', () => {
+                hideAllMessages();
+            });
+
+            document.getElementById('password').addEventListener('input', () => {
+                hideAllMessages();
+            });
+        }
+
+        // LIFF initialization
+        async function initializeLiff() {
             try {
-                const result = await makeApiCall(API_CONFIG.ENDPOINTS.LINK_ACCOUNT, {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        lineUserId: userProfile.userId,
-                        prima789Account: {
-                            username: foundAccount.username,
-                            displayName: foundAccount.displayName
-                        },
-                        userProfile: {
-                            displayName: userProfile.displayName,
-                            pictureUrl: userProfile.pictureUrl
-                        }
-                    })
-                });
+                showLoading(true);
                 
-                if (!result.success) {
-                    throw new Error(result.error || 'ไม่สามารถเชื่อมโยงบัญชีได้');
-                }
-                
-                // เชื่อมโยงสำเร็จ
-                showStep(4);
-                setProgress(100);
-                
-                // ส่งข้อความแจ้งเตือนใน LINE
-                if (isLIFFAvailable && liff.isInClient()) {
-                    try {
-                        await liff.sendMessages([{
-                            type: 'text',
-                            text: `✅ เชื่อมโยงบัญชี Prima789 สำเร็จแล้ว!\n` +
-                                `Username: ${foundAccount.username}\n` +
-                                `ตอนนี้คุณสามารถใช้ Member Card ผ่าน LINE ได้เลย`
-                        }]);
-                    } catch (msgError) {
-                        console.error('Error sending LINE message:', msgError);
+                if (window.liff) {
+                    await window.liff.init({
+                        liffId: '2008090006-ZMGmoOla' // Replace with actual LIFF ID
+                    });
+
+                    if (!window.liff.isLoggedIn()) {
+                        window.liff.login();
+                        return;
                     }
+
+                    // Get user profile
+                    userProfile = await window.liff.getProfile();
+                    console.log('User profile:', userProfile);
+                } else {
+                    // Mock profile for testing
+                    userProfile = {
+                        userId: 'U' + Math.random().toString(36).substring(2, 15),
+                        displayName: 'Test User',
+                        pictureUrl: null,
+                        statusMessage: null
+                    };
                 }
+
+                // Check if account is already linked
+                const isLinked = await checkExistingLink();
                 
+                if (!isLinked) {
+                    // Show linking interface
+                    document.getElementById('header').classList.remove('hidden');
+                    document.getElementById('stepIndicator').classList.remove('hidden');
+                    showStep(1);
+                }
+
             } catch (error) {
-                console.error('Error confirming linking:', error);
-                showError(error.message || 'เกิดข้อผิดพลาดในการเชื่อมโยงบัญชี');
+                console.error('LIFF initialization error:', error);
+                showError('ไม่สามารถเชื่อมต่อกับ LINE ได้');
+                
+                // Try with mock data
+                userProfile = {
+                    userId: 'mock_user_' + Date.now(),
+                    displayName: 'Mock User'
+                };
+                
+                document.getElementById('header').classList.remove('hidden');
+                document.getElementById('stepIndicator').classList.remove('hidden');
+                showStep(1);
+            } finally {
+                showLoading(false);
             }
-            
-            showLoading('confirm', false);
         }
 
-        // Mock API function
-        async function mockApiCall(endpoint, options = {}) {
-            console.log(`Mock API Call: ${endpoint}`, options);
-            
-            // Simulate network delay
-            await delay(500 + Math.random() * 1000);
-            
-            // Mock responses based on endpoint
-            let mockResponse;
-            
-            switch (endpoint) {
-                case '/api/search-prima789-account':
-                    mockResponse = {
-                        success: Math.random() > 0.3, // 70% success rate
-                        accountFound: Math.random() > 0.5,
-                        account: mockAccounts[Math.floor(Math.random() * mockAccounts.length)]
-                    };
-                    break;
-                    
-                case '/api/process-account-sync':
-                    const data = JSON.parse(options.body || '{}');
-                    if (data.syncMethod === 'manual') {
-                        // For manual, try to find account with matching username
-                        const account = mockAccounts.find(acc => 
-                            acc.username.toLowerCase().includes(data.username.toLowerCase())
-                        );
-                        mockResponse = {
-                            success: !!account,
-                            accountFound: !!account,
-                            account: account,
-                            message: account ? 'พบบัญชี!' : 'ไม่พบ username ที่ระบุ'
-                        };
-                    } else if (data.syncMethod === 'socket') {
-                        mockResponse = {
-                            success: true,
-                            accountFound: false,
-                            socketReady: true
-                        };
-                    } else {
-                        mockResponse = {
-                            success: true,
-                            accountFound: Math.random() > 0.4,
-                            account: mockAccounts[0]
-                        };
-                    }
-                    break;
-                    
-                case '/api/register-socket-sync':
-                    mockResponse = {
-                        success: true,
-                        syncId: 'sync_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
-                    };
-                    break;
-                    
-                default:
-                    if (endpoint.includes('/api/check-sync-status')) {
-                        // Random completion after some time
-                        const completed = Math.random() > 0.7;
-                        mockResponse = {
-                            success: true,
-                            completed: completed,
-                            accountLinked: completed,
-                            account: completed ? mockAccounts[1] : null
-                        };
-                    } else {
-                        mockResponse = {
-                            success: true,
-                            isLinked: false
-                        };
-                    }
-            }
-            
-            console.log(`Mock Response: ${endpoint}`, mockResponse);
-            
-            return {
-                json: async () => mockResponse
-            };
-        }
-
-        function delay(ms) {
-            return new Promise(resolve => setTimeout(resolve, ms));
-        }
-        
-        function getTierColor(tier) {
-            switch (tier) {
-                case 'Diamond': return '#B9F2FF';
-                case 'Platinum': return '#E5E4E2';
-                case 'Gold': return '#FFD700';
-                case 'Silver': return '#C0C0C0';
-                case 'Bronze': return '#CD7F32';
-                default: return '#666';
-            }
-        }
-        
-        function openMemberCard() {
-            const url = 'https://liff.line.me/2008090006-ZV6r9v5J';
-            
-            if (isLIFFAvailable && liff.isInClient()) {
-                liff.openWindow({
-                    url: url,
-                    external: false
-                });
-            } else {
-                window.open(url, '_blank');
-            }
-        }
-        
-        function closeLIFF() {
-            if (isLIFFAvailable && liff.isInClient()) {
-                liff.closeWindow();
-            } else {
-                window.close();
-            }
-        }
-        
-        function goBack() {
-            showStep(1);
-            setProgress(25);
-        }
-        
-        function goBackToMethod() {
-            showStep(2);
-            setProgress(50);
-            selectedSyncMethod = null;
-            document.querySelectorAll('input[name="syncMethod"]').forEach(radio => {
-                radio.checked = false;
-            });
-            document.querySelectorAll('.sync-option').forEach(option => {
-                option.classList.remove('selected');
-            });
-            document.getElementById('processBtn').disabled = true;
-        }
-        
-        function showStep(stepNumber) {
-            document.querySelectorAll('.step').forEach(step => {
-                step.classList.remove('active');
-            });
-            document.getElementById(`step${stepNumber}`).classList.add('active');
-        }
-        
-        function setProgress(percentage) {
-            document.getElementById('progressFill').style.width = `${percentage}%`;
-        }
-        
-        function showLoading(type, show) {
-            const textElement = document.getElementById(`${type}Text`);
-            const loadingElement = document.getElementById(`${type}Loading`);
-            
-            if (show) {
-                textElement.style.display = 'none';
-                loadingElement.style.display = 'inline-block';
-            } else {
-                textElement.style.display = 'inline';
-                loadingElement.style.display = 'none';
-            }
-        }
-        
-        function showError(message) {
-            const errorElement = document.getElementById('errorMessage');
-            errorElement.textContent = message;
-            errorElement.style.display = 'block';
-        }
-        
-        function hideError() {
-            document.getElementById('errorMessage').style.display = 'none';
-        }
+        // Initialize app
+        document.addEventListener('DOMContentLoaded', () => {
+            setupEventHandlers();
+            initializeLiff();
+        });
     </script>
 </body>
 </html>
