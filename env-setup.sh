@@ -34,7 +34,7 @@ netlify env:set LINE_LIFF_ID_MEMBER_CARD "2008090006-ZV6r9v5J"
 netlify env:set LINE_LIFF_ID_ACCOUNT_LINKING "2008090006-ZMGmoOla"
 
 # Webhook Security
-netlify env:set PRIMA789_WEBHOOK_API_KEY "Slaccczx"
+netlify env:set PRIMA789_WEBHOOK_API_KEY "PRIMA789_f1922de52a8e5c6bf5b4777dabeff027"
 
 # Netlify
 netlify env:set NETLIFY_URL "https://sliffs.netlify.app"
@@ -42,7 +42,7 @@ netlify env:set NODE_ENV "production"
 
 # Optional: Prima789 API (ถ้ามี direct API access)
 netlify env:set PRIMA789_API_KEY "your_prima789_sssa"
-netlify env:set PRIMA789_API_URL "https://api.prima789.com/socket.io"
+netlify env:set PRIMA789_API_URL "https://api.prima789.net/socket.io"
 
 # Admin Dashboard (ถ้าต้องการ)
 netlify env:set ADMIN_USERNAME "admin"
