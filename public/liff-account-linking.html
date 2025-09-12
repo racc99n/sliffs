@@ -357,6 +357,33 @@
             background: linear-gradient(90deg, #06C755, #00B900);
             transition: width 0.3s ease;
         }
+
+        .debug-info {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            font-size: 12px;
+            text-align: left;
+        }
+        
+        .debug-info pre {
+            background: #e9ecef;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            margin: 5px 0;
+        }
+
+        .warning-box {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            color: #856404;
+        }
         
         @media (max-width: 480px) {
             .container {
@@ -400,6 +427,12 @@
                 <div class="user-profile" id="userProfileDisplay">
                     <div class="loading" style="margin: 20px auto;"></div>
                     <p>กำลังโหลดข้อมูล LINE Profile...</p>
+                </div>
+
+                <!-- Debug Information -->
+                <div class="debug-info" id="debugInfo" style="display: none;">
+                    <h4>Debug Information:</h4>
+                    <div id="debugContent"></div>
                 </div>
                 
                 <button class="btn btn-primary" id="continueBtn" onclick="searchPrima789Account()" disabled>
@@ -530,47 +563,158 @@
     </div>
 
     <script>
-        let liff;
         let userProfile = null;
         let selectedSyncMethod = null;
         let foundAccount = null;
         let socketConnection = null;
+        let isLIFFAvailable = false;
+        let isMockMode = false;
+
+        // Mock data สำหรับการทดสอบ
+        const mockUserProfile = {
+            userId: 'U' + Math.random().toString(36).substr(2, 32),
+            displayName: 'สมชาย ดีใจ',
+            pictureUrl: 'https://via.placeholder.com/150/06C755/FFFFFF?text=User',
+            statusMessage: 'Hello LINE!',
+            language: 'th'
+        };
+
+        const mockAccounts = [
+            {
+                username: 'user123456',
+                displayName: 'สมชาย ดีใจ',
+                balance: 25680,
+                tier: 'Gold',
+                phone: '081-234-5678',
+                email: 'user@example.com',
+                registrationDate: '2023-01-15',
+                lastLogin: '2024-12-18 14:30:00'
+            },
+            {
+                username: 'vipgamer99',
+                displayName: 'สมชาย VIP',
+                balance: 155000,
+                tier: 'Diamond',
+                phone: '089-876-5432',
+                email: 'vip@example.com',
+                registrationDate: '2022-05-20',
+                lastLogin: '2024-12-18 15:45:00'
+            }
+        ];
         
-        // Initialize LIFF
+        // Initialize application
         document.addEventListener('DOMContentLoaded', async () => {
+            await initializeApp();
+        });
+
+        async function initializeApp() {
             try {
-                // Use environment variable or fallback
-                const liffId = '2008090006-ZMGmoOla'; // จะต้องแทนที่ด้วย actual LIFF ID
+                // ตรวจสอบว่า LIFF SDK โหลดได้หรือไม่
+                if (typeof liff !== 'undefined') {
+                    await initializeLIFF();
+                } else {
+                    console.warn('LIFF SDK not available, switching to mock mode');
+                    initializeMockMode();
+                }
+            } catch (error) {
+                console.error('App initialization error:', error);
+                showDebugInfo('App Init Error', error);
+                initializeMockMode();
+            }
+        }
+
+        async function initializeLIFF() {
+            try {
+                // Use a valid LIFF ID or mock for testing
+                const liffId = '2008090006-ZMGmoOla'; // Replace with actual LIFF ID
+                
                 await liff.init({ liffId: liffId });
                 
                 if (!liff.isLoggedIn()) {
-                    liff.login();
+                    if (liff.isInClient()) {
+                        liff.login();
+                    } else {
+                        // Not in LINE client, use mock mode
+                        showWarning('กรุณาเปิดใน LINE app เพื่อใช้งานจริง ตอนนี้ใช้โหมดทดสอบ');
+                        initializeMockMode();
+                    }
                     return;
                 }
                 
                 // Get user profile
                 userProfile = await liff.getProfile();
-                console.log('User Profile:', userProfile);
+                isLIFFAvailable = true;
                 
-                // Display user profile
+                showDebugInfo('LIFF Profile', userProfile);
+                console.log('LIFF Profile loaded:', userProfile);
+                
                 displayUserProfile();
-                
-                // Check if already linked
                 await checkExistingLink();
                 
             } catch (error) {
                 console.error('LIFF initialization error:', error);
-                showError('เกิดข้อผิดพลาดในการเชื่อมต่อ กรุณาลองใหม่อีกครั้ง');
+                showDebugInfo('LIFF Error', error);
+                showWarning('ไม่สามารถเชื่อมต่อ LIFF ได้ ใช้โหมดทดสอบแทน');
+                initializeMockMode();
             }
-        });
+        }
+
+        function initializeMockMode() {
+            isMockMode = true;
+            userProfile = mockUserProfile;
+            
+            showDebugInfo('Mock Mode', { 
+                message: 'Running in mock mode for testing',
+                profile: userProfile 
+            });
+            
+            console.log('Mock mode initialized with profile:', userProfile);
+            
+            // Simulate loading delay
+            setTimeout(() => {
+                displayUserProfile();
+                checkExistingLink();
+            }, 1000);
+        }
+
+        function showWarning(message) {
+            const warningHtml = `
+                <div class="warning-box">
+                    <strong>⚠️ โหมดทดสอบ</strong><br>
+                    ${message}
+                </div>
+            `;
+            
+            // Insert warning at the top of content
+            const content = document.querySelector('.content');
+            content.insertAdjacentHTML('afterbegin', warningHtml);
+        }
+
+        function showDebugInfo(title, data) {
+            const debugInfo = document.getElementById('debugInfo');
+            const debugContent = document.getElementById('debugContent');
+            
+            const debugHtml = `
+                <div style="margin-bottom: 10px;">
+                    <strong>${title}:</strong>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                </div>
+            `;
+            
+            debugContent.innerHTML += debugHtml;
+            debugInfo.style.display = 'block';
+        }
         
         function displayUserProfile() {
+            const defaultAvatar = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjE1MCIgdmlld0JveD0iMCAwIDEwMCAxMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iNTAiIGN5PSI1MCIgcj0iNTAiIGZpbGw9IiMwNkM3NTUiLz48Y2lyY2xlIGN4PSI1MCIgY3k9IjM1IiByPSIxNSIgZmlsbD0id2hpdGUiLz48cGF0aCBkPSJNMjAgNzVjMC0xNiAxMy00MyAzMC00M3MzMCAyNyAzMCA0MyIgZmlsbD0id2hpdGUiLz48L3N2Zz4=';
+            
             const profileHtml = `
-                <img src="${userProfile.pictureUrl || '/assets/default-avatar.png'}" 
+                <img src="${userProfile.pictureUrl || defaultAvatar}" 
                      alt="Profile" class="profile-avatar" 
-                     onerror="this.src='/assets/default-avatar.png'">
+                     onerror="this.src='${defaultAvatar}'">
                 <div class="profile-name">${userProfile.displayName}</div>
                 <div class="profile-id">ID: ${userProfile.userId.substring(0, 20)}...</div>
+                ${isMockMode ? '<div style="color: #ff9800; font-size: 12px; margin-top: 5px;">โหมดทดสอบ</div>' : ''}
             `;
             
             document.getElementById('userProfileDisplay').innerHTML = profileHtml;
@@ -579,7 +723,19 @@
         
         async function checkExistingLink() {
             try {
-                const response = await fetch('/api/check-account-linking', {
+                if (isMockMode) {
+                    // Mock: randomly decide if already linked
+                    const isLinked = Math.random() > 0.8; // 20% chance already linked
+                    if (isLinked) {
+                        setTimeout(() => {
+                            showStep(4);
+                            setProgress(100);
+                        }, 1000);
+                    }
+                    return;
+                }
+
+                const response = await mockApiCall('/api/check-account-linking', {
                     method: 'GET',
                     headers: {
                         'Content-Type': 'application/json'
@@ -589,7 +745,6 @@
                 const result = await response.json();
                 
                 if (result.success && result.isLinked) {
-                    // Already linked, show success immediately
                     showStep(4);
                     setProgress(100);
                 }
@@ -604,8 +759,9 @@
             setProgress(50);
             
             try {
-                // Search for Prima789 account using LINE profile data
-                const response = await fetch('/api/search-prima789-account', {
+                await delay(1500); // Simulate API delay
+                
+                const response = await mockApiCall('/api/search-prima789-account', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -620,13 +776,11 @@
                 const result = await response.json();
                 
                 if (result.success && result.accountFound) {
-                    // Account found automatically
                     foundAccount = result.account;
                     displayFoundAccount();
                     showStep(3);
                     setProgress(75);
                 } else {
-                    // Need to choose sync method
                     showStep(2);
                     setProgress(50);
                 }
@@ -691,7 +845,9 @@
                     requestData.username = username;
                 }
                 
-                const response = await fetch('/api/process-account-sync', {
+                await delay(2000); // Simulate processing time
+                
+                const response = await mockApiCall('/api/process-account-sync', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -708,7 +864,6 @@
                         showStep(3);
                         setProgress(75);
                     } else if (selectedSyncMethod === 'socket') {
-                        // Show socket waiting screen
                         setupSocketSync();
                         showStep(3);
                         setProgress(75);
@@ -730,6 +885,7 @@
         function displayFoundAccount() {
             document.getElementById('accountMatchDisplay').style.display = 'block';
             document.getElementById('socketWaitingBox').style.display = 'none';
+            document.getElementById('confirmBtn').style.display = 'block';
             
             const detailsHtml = `
                 <div class="detail-item">
@@ -758,14 +914,14 @@
             document.getElementById('socketWaitingBox').style.display = 'block';
             document.getElementById('confirmBtn').style.display = 'none';
             
-            // Start socket connection for real-time sync
             startSocketSync();
         }
         
         async function startSocketSync() {
             try {
-                // Register for socket sync
-                const response = await fetch('/api/register-socket-sync', {
+                await delay(1000);
+                
+                const response = await mockApiCall('/api/register-socket-sync', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -779,7 +935,6 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    // Poll for sync completion
                     pollSyncStatus(result.syncId);
                 } else {
                     showError('เกิดข้อผิดพลาดในการเตรียมระบบ Socket Sync');
@@ -792,9 +947,14 @@
         }
         
         function pollSyncStatus(syncId) {
+            let pollCount = 0;
+            const maxPolls = 20; // 1 minute total
+            
             const pollInterval = setInterval(async () => {
                 try {
-                    const response = await fetch(`/api/check-sync-status?syncId=${syncId}`);
+                    pollCount++;
+                    
+                    const response = await mockApiCall(`/api/check-sync-status?syncId=${syncId}`);
                     const result = await response.json();
                     
                     if (result.success && result.completed) {
@@ -805,8 +965,7 @@
                             showStep(4);
                             setProgress(100);
                             
-                            // Send success message
-                            if (liff.isInClient()) {
+                            if (isLIFFAvailable && liff.isInClient()) {
                                 liff.sendMessages([{
                                     type: 'text',
                                     text: '✅ เชื่อมโยงบัญชี Prima789 สำเร็จแล้ว!\nตอนนี้คุณสามารถใช้ Member Card ผ่าน LINE ได้เลย'
@@ -815,27 +974,27 @@
                         } else {
                             showError('ไม่สามารถเชื่อมโยงบัญชีได้ กรุณาลองใหม่อีกครั้ง');
                         }
+                    } else if (pollCount >= maxPolls) {
+                        clearInterval(pollInterval);
+                        showError('หมดเวลารอการเชื่อมโยง กรุณาลองใหม่อีกครั้ง');
                     }
                     
                 } catch (error) {
                     console.error('Error polling sync status:', error);
                 }
-            }, 3000); // Poll every 3 seconds
-            
-            // Stop polling after 5 minutes
-            setTimeout(() => {
-                clearInterval(pollInterval);
-            }, 300000);
+            }, 3000);
         }
         
         function openPrima789Login() {
-            if (liff.isInClient()) {
+            const url = 'https://prima789.com/login';
+            
+            if (isLIFFAvailable && liff.isInClient()) {
                 liff.openWindow({
-                    url: 'https://prima789.com/login',
+                    url: url,
                     external: true
                 });
             } else {
-                window.open('https://prima789.com/login', '_blank');
+                window.open(url, '_blank');
             }
         }
         
@@ -848,7 +1007,9 @@
             showLoading('confirm', true);
             
             try {
-                const response = await fetch('/api/confirm-account-linking', {
+                await delay(1500);
+                
+                const response = await mockApiCall('/api/confirm-account-linking', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -866,8 +1027,7 @@
                     showStep(4);
                     setProgress(100);
                     
-                    // Send success message
-                    if (liff.isInClient()) {
+                    if (isLIFFAvailable && liff.isInClient()) {
                         liff.sendMessages([{
                             type: 'text',
                             text: '✅ เชื่อมโยงบัญชี Prima789 สำเร็จแล้ว!\nตอนนี้คุณสามารถใช้ Member Card ผ่าน LINE ได้เลย'
@@ -884,6 +1044,89 @@
             
             showLoading('confirm', false);
         }
+
+        // Mock API function
+        async function mockApiCall(endpoint, options = {}) {
+            console.log(`Mock API Call: ${endpoint}`, options);
+            
+            // Simulate network delay
+            await delay(500 + Math.random() * 1000);
+            
+            // Mock responses based on endpoint
+            let mockResponse;
+            
+            switch (endpoint) {
+                case '/api/search-prima789-account':
+                    mockResponse = {
+                        success: Math.random() > 0.3, // 70% success rate
+                        accountFound: Math.random() > 0.5,
+                        account: mockAccounts[Math.floor(Math.random() * mockAccounts.length)]
+                    };
+                    break;
+                    
+                case '/api/process-account-sync':
+                    const data = JSON.parse(options.body || '{}');
+                    if (data.syncMethod === 'manual') {
+                        // For manual, try to find account with matching username
+                        const account = mockAccounts.find(acc => 
+                            acc.username.toLowerCase().includes(data.username.toLowerCase())
+                        );
+                        mockResponse = {
+                            success: !!account,
+                            accountFound: !!account,
+                            account: account,
+                            message: account ? 'พบบัญชี!' : 'ไม่พบ username ที่ระบุ'
+                        };
+                    } else if (data.syncMethod === 'socket') {
+                        mockResponse = {
+                            success: true,
+                            accountFound: false,
+                            socketReady: true
+                        };
+                    } else {
+                        mockResponse = {
+                            success: true,
+                            accountFound: Math.random() > 0.4,
+                            account: mockAccounts[0]
+                        };
+                    }
+                    break;
+                    
+                case '/api/register-socket-sync':
+                    mockResponse = {
+                        success: true,
+                        syncId: 'sync_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
+                    };
+                    break;
+                    
+                default:
+                    if (endpoint.includes('/api/check-sync-status')) {
+                        // Random completion after some time
+                        const completed = Math.random() > 0.7;
+                        mockResponse = {
+                            success: true,
+                            completed: completed,
+                            accountLinked: completed,
+                            account: completed ? mockAccounts[1] : null
+                        };
+                    } else {
+                        mockResponse = {
+                            success: true,
+                            isLinked: false
+                        };
+                    }
+            }
+            
+            console.log(`Mock Response: ${endpoint}`, mockResponse);
+            
+            return {
+                json: async () => mockResponse
+            };
+        }
+
+        function delay(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
         
         function getTierColor(tier) {
             switch (tier) {
@@ -897,18 +1140,20 @@
         }
         
         function openMemberCard() {
-            if (liff.isInClient()) {
+            const url = 'https://prima168.cc/liff-member-card.html';
+            
+            if (isLIFFAvailable && liff.isInClient()) {
                 liff.openWindow({
-                    url: 'https://prima168.cc/liff-member-card.html',
+                    url: url,
                     external: false
                 });
             } else {
-                window.location.href = 'https://prima168.cc/liff-member-card.html';
+                window.open(url, '_blank');
             }
         }
         
         function closeLIFF() {
-            if (liff.isInClient()) {
+            if (isLIFFAvailable && liff.isInClient()) {
                 liff.closeWindow();
             } else {
                 window.close();
@@ -923,6 +1168,14 @@
         function goBackToMethod() {
             showStep(2);
             setProgress(50);
+            selectedSyncMethod = null;
+            document.querySelectorAll('input[name="syncMethod"]').forEach(radio => {
+                radio.checked = false;
+            });
+            document.querySelectorAll('.sync-option').forEach(option => {
+                option.classList.remove('selected');
+            });
+            document.getElementById('processBtn').disabled = true;
         }
         
         function showStep(stepNumber) {
