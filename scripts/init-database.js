@@ -140,20 +140,10 @@ async function initializeDatabase() {
         console.log('✅ Database connected:', result.rows[0].now);
         client.release();
         
-        // Try to read schema file, fallback to inline schema
+        // Use inline schema by default to avoid conflicts
         console.log('\n📋 Creating database schema...');
-        let schemaSQL;
-        
-        try {
-            schemaSQL = await fs.promises.readFile(
-                path.join(__dirname, '..', 'database-schema.sql'), 
-                'utf8'
-            );
-            console.log('📄 Using external schema file...');
-        } catch (fileError) {
-            console.log('⚠️  Schema file not found, using inline schema...');
-            schemaSQL = await createInlineSchema();
-        }
+        console.log('📄 Using inline schema (safer option)...');
+        const schemaSQL = await createInlineSchema();
         
         // Split and execute SQL statements
         const statements = schemaSQL
