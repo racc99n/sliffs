@@ -598,7 +598,7 @@
         handleUserLogin(normalizedData, source)
 
         // Show notification for new user
-        if (CONFIG.NOTIFICATIONS.ENABLED) {
+        if (CONFIG.NOTIFICATIONS.DISABLED) {
           showSmartNotification(`เชื่อมต่อผู้ใช้ใหม่: ${userId}`, 'success')
         }
       } else {
@@ -750,18 +750,6 @@
         }
 
         queueTransaction(balanceTransaction)
-
-        // Show balance change notification
-        if (CONFIG.NOTIFICATIONS.ENABLED && Math.abs(amount) >= 1) {
-          const formattedAmount = formatCurrency(Math.abs(amount))
-          const message = `${
-            transactionType === 'deposit' ? '💰 เงินเข้า' : '💸 เงินออก'
-          }: ${formattedAmount}`
-          showSmartNotification(
-            message,
-            transactionType === 'deposit' ? 'success' : 'info'
-          )
-        }
 
         log('SUCCESS', `💰 Balance ${transactionType}:`, { amount, balance })
       }
@@ -1015,7 +1003,7 @@
     type = 'info',
     duration = CONFIG.NOTIFICATIONS.DURATION
   ) {
-    if (!CONFIG.NOTIFICATIONS.ENABLED) return
+    if (!CONFIG.NOTIFICATIONS.DISABLED) return
 
     try {
       // Remove existing notifications
@@ -1190,7 +1178,7 @@
       isInitialized = true
 
       // Show success notification
-      if (CONFIG.NOTIFICATIONS.ENABLED) {
+      if (CONFIG.NOTIFICATIONS.DISABLED) {
         setTimeout(() => {
           showSmartNotification(
             'Console Integration เริ่มทำงานแล้ว!',
@@ -1205,14 +1193,14 @@
         'INFO',
         `🔧 Configuration: API Ready, Debug ${
           CONFIG.DEBUG ? 'ON' : 'OFF'
-        }, Notifications ${CONFIG.NOTIFICATIONS.ENABLED ? 'ON' : 'OFF'}`
+        }, Notifications ${CONFIG.NOTIFICATIONS.DISABLED ? 'ON' : 'OFF'}`
       )
 
       return true
     } catch (error) {
       log('ERROR', '❌ INITIALIZATION FAILED:', error)
 
-      if (CONFIG.NOTIFICATIONS.ENABLED) {
+      if (CONFIG.NOTIFICATIONS.DISABLED) {
         showSmartNotification('เกิดข้อผิดพลาดในการเริ่มต้น', 'error')
       }
 
