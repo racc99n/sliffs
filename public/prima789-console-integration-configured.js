@@ -12,9 +12,9 @@
   const CONFIG = {
     WEBHOOK_URL:
       'https://sliffs.netlify.app/.netlify/functions/transaction-webhook',
-    API_KEY: 'your_actual_api_key_here', // ⚠️ ใส่ API Key จริงที่นี่
+    API_KEY: 'PRIMA789_f1922de52a8e5c6bf5b4777dabeff027', // ✅ REAL API KEY CONFIGURED
     DEBUG: true,
-    VERSION: '3.0.0-console-log',
+    VERSION: '3.0.0-console-log-configured',
     RETRY_ATTEMPTS: 3,
     RETRY_DELAY: 2000,
     QUEUE_MAX_SIZE: 100,
@@ -323,7 +323,7 @@
     }
 
     queueTransaction(loginData)
-    showSyncNotification(`เชื่อมต่อ LINE สำเร็จ\nผู้ใช้: ${userData.mm_user}`)
+    //showSyncNotification(`เชื่อมต่อ LINE สำเร็จ\nผู้ใช้: ${userData.mm_user}`)
   }
 
   // Handle balance update
@@ -455,70 +455,6 @@
     }
   }
 
-  // Show sync notification
-  function showSyncNotification(message) {
-    if (typeof document === 'undefined') return
-
-    const notification = document.createElement('div')
-    notification.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: linear-gradient(135deg, #06C755, #00B900);
-            color: white;
-            padding: 15px 25px;
-            border-radius: 10px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-            z-index: 10000;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            font-size: 14px;
-            font-weight: 600;
-            max-width: 300px;
-            animation: slideInRight 0.5s ease;
-        `
-
-    notification.innerHTML = `
-            <div style="display: flex; align-items: center;">
-                <span style="margin-right: 10px;">🔗</span>
-                <div>
-                    <div style="font-weight: bold;">Prima789 × LINE</div>
-                    <div style="font-size: 12px; opacity: 0.9;">${message}</div>
-                </div>
-            </div>
-        `
-
-    // Add animation styles
-    const style = document.createElement('style')
-    style.textContent = `
-            @keyframes slideInRight {
-                from {
-                    transform: translateX(100%);
-                    opacity: 0;
-                }
-                to {
-                    transform: translateX(0);
-                    opacity: 1;
-                }
-            }
-        `
-    document.head.appendChild(style)
-
-    document.body.appendChild(notification)
-
-    // Remove notification after 5 seconds
-    setTimeout(() => {
-      notification.style.animation = 'slideInRight 0.5s ease reverse'
-      setTimeout(() => {
-        if (notification.parentNode) {
-          notification.parentNode.removeChild(notification)
-        }
-        if (style.parentNode) {
-          style.parentNode.removeChild(style)
-        }
-      }, 500)
-    }, 5000)
-  }
-
   // Main initialization
   function initPrima789ConsoleIntegration() {
     if (isInitialized) {
@@ -533,11 +469,6 @@
       isInitialized = true
 
       log('✅ Prima789 Console Integration initialized successfully')
-
-      // Show initialization notification
-      setTimeout(() => {
-        showSyncNotification('ระบบ Console Integration พร้อมใช้งาน')
-      }, 1000)
     } catch (error) {
       log('❌ Failed to initialize Prima789 Console Integration:', error)
     }
