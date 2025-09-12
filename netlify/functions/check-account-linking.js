@@ -1,154 +1,334 @@
-const {
-  checkUserLinking,
-  getLineUser,
-  logSystemEvent,
-} = require('./utils/database')
+/**
+ * Check Account Linking Function
+ * Netlify Function: /.netlify/functions/check-account-linking
+ *
+ * ตรวจสอบสถานะการเชื่อมต่อบัญชี LINE กับ Prima789
+ */
 
+const { Pool } = require('pg')
+
+// Database configuration
+let pool = null
+
+function initializeDatabase() {
+  if (pool) return pool
+
+  try {
+    const databaseUrl =
+      process.env.NETLIFY_DATABASE_URL || process.env.DATABASE_URL
+
+    if (!databaseUrl) {
+      throw new Error('Database URL not configured')
+    }
+
+    pool = new Pool({
+      connectionString: databaseUrl,
+      ssl: databaseUrl.includes('localhost')
+        ? false
+        : { rejectUnauthorized: false },
+      max: 3,
+      min: 1,
+      idleTimeoutMillis: 30000,
+    })
+
+    console.log('✅ Database initialized for check-account-linking')
+    return pool
+  } catch (error) {
+    console.error('❌ Database initialization failed:', error)
+    throw error
+  }
+}
+
+// Execute database query
+async function executeQuery(query, params = []) {
+  const client = initializeDatabase()
+
+  try {
+    console.log('🔍 Executing query:', query.substring(0, 100) + '...')
+    const result = await client.query(query, params)
+    console.log('✅ Query success, rows:', result.rowCount)
+    return result
+  } catch (error) {
+    console.error('❌ Query error:', error)
+    throw error
+  }
+}
+
+// Check user linking status
+async function checkUserLinking(lineUserId) {
+  try {
+    const query = `
+            SELECT 
+                lu.id as line_user_id,
+                lu.line_user_id,
+                lu.display_name,
+                lu.picture_url,
+                lu.is_linked,
+                lu.prima789_username,
+                al.id as link_id,
+                al.link_method,
+                al.linked_at,
+                al.is_active as link_active,
+                pa.id as account_id,
+                pa.username,
+                pa.mm_user,
+                pa.first_name,
+                pa.last_name,
+                pa.acc_no,
+                pa.bank_name,
+                pa.available,
+                pa.credit_limit,
+                pa.bet_credit,
+                pa.tier,
+                pa.points,
+                pa.last_login,
+                pa.updated_at as account_updated
+            FROM line_users lu
+            LEFT JOIN account_links al ON lu.line_user_id = al.line_user_id AND al.is_active = TRUE
+            LEFT JOIN prima789_accounts pa ON al.prima789_username = pa.username
+            WHERE lu.line_user_id = $1;
+        `
+
+    const result = await executeQuery(query, [lineUserId])
+
+    if (result.rows.length === 0) {
+      return null
+    }
+
+    return result.rows[0]
+  } catch (error) {
+    console.error('❌ Error checking user linking:', error)
+    throw error
+  }
+}
+
+// Get linking statistics
+async function getLinkingStats() {
+  try {
+    const query = `
+            SELECT 
+                COUNT(*) as total_users,
+                COUNT(CASE WHEN is_linked = TRUE THEN 1 END) as linked_users,
+                COUNT(CASE WHEN is_linked = FALSE THEN 1 END) as unlinked_users,
+                COUNT(CASE WHEN created_at > NOW() - INTERVAL '24 hours' THEN 1 END) as new_users_24h
+            FROM line_users;
+        `
+
+    const result = await executeQuery(query)
+    return result.rows[0]
+  } catch (error) {
+    console.error('❌ Error getting linking stats:', error)
+    return null
+  }
+}
+
+// Check if Prima789 username is available
+async function checkPrima789Username(username) {
+  try {
+    const query = `
+            SELECT 
+                username,
+                mm_user,
+                first_name,
+                last_name,
+                is_active,
+                EXISTS(SELECT 1 FROM account_links WHERE prima789_username = $1 AND is_active = TRUE) as is_linked
+            FROM prima789_accounts 
+            WHERE username = $1 OR mm_user = $1;
+        `
+
+    const result = await executeQuery(query, [username])
+
+    if (result.rows.length === 0) {
+      return { exists: false, available: true }
+    }
+
+    const account = result.rows[0]
+    return {
+      exists: true,
+      available: !account.is_linked,
+      account: account,
+    }
+  } catch (error) {
+    console.error('❌ Error checking Prima789 username:', error)
+    throw error
+  }
+}
+
+// Main handler
 exports.handler = async (event, context) => {
-  console.log('🔗 Check Account Linking - Start')
+  console.log('🔍 Check Account Linking - Start')
+  console.log('📊 Request info:', {
+    method: event.httpMethod,
+    query: event.queryStringParameters,
+    bodyLength: event.body ? event.body.length : 0,
+  })
 
   // CORS headers
   const headers = {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Content-Type': 'application/json',
   }
 
+  // Handle preflight
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' }
   }
 
   try {
-    // Get LINE user ID from query parameters or Authorization header
     let lineUserId = null
+    let checkUsername = null
+    let getStats = false
 
-    if (event.queryStringParameters?.lineUserId) {
-      lineUserId = event.queryStringParameters.lineUserId
-    }
-
-    // Try to extract from Authorization header (LINE access token)
-    if (!lineUserId && event.headers.authorization) {
-      // In real implementation, you would verify LINE access token here
-      // For now, we'll use a simple extraction method
-      const authHeader = event.headers.authorization
-      if (authHeader.startsWith('Bearer ')) {
-        // This is a placeholder - in production you'd decode the token
-        lineUserId = event.queryStringParameters?.lineUserId
+    // Parse request parameters
+    if (event.httpMethod === 'GET') {
+      const params = event.queryStringParameters || {}
+      lineUserId = params.lineUserId || params.line_user_id
+      checkUsername = params.checkUsername || params.username
+      getStats = params.stats === 'true'
+    } else if (event.httpMethod === 'POST') {
+      if (!event.body) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            error: 'Request body required',
+          }),
+        }
       }
+
+      const requestData = JSON.parse(event.body)
+      lineUserId = requestData.lineUserId || requestData.line_user_id
+      checkUsername = requestData.checkUsername || requestData.username
+      getStats = requestData.getStats || requestData.stats
     }
 
-    if (!lineUserId) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({
-          success: false,
-          error: 'LINE User ID is required',
-          message:
-            'Please provide lineUserId parameter or valid authorization header',
-        }),
-      }
-    }
+    // Initialize database
+    initializeDatabase()
 
-    console.log(`Checking linking status for LINE user: ${lineUserId}`)
-
-    // Check user linking status
-    const linkingInfo = await checkUserLinking(lineUserId)
-
-    if (!linkingInfo) {
-      // User not found in database
-      await logSystemEvent(
-        'WARN',
-        'check-account-linking',
-        `LINE user not found: ${lineUserId}`,
-        { line_user_id: lineUserId }
-      )
+    // Handle different request types
+    if (getStats) {
+      console.log('📊 Getting linking statistics')
+      const stats = await getLinkingStats()
 
       return {
         statusCode: 200,
         headers,
         body: JSON.stringify({
           success: true,
-          isLinked: false,
-          user: null,
-          message:
-            'User not found in system. Please complete LINE profile sync first.',
+          data: stats,
+          timestamp: new Date().toISOString(),
         }),
       }
     }
 
-    const isLinked = linkingInfo.is_linked && linkingInfo.prima789_username
+    if (checkUsername) {
+      console.log('🔍 Checking Prima789 username:', checkUsername)
+      const usernameCheck = await checkPrima789Username(checkUsername)
 
-    let responseData = {
-      success: true,
-      isLinked: isLinked,
-      user: {
-        line_user_id: linkingInfo.line_user_id,
-        display_name: linkingInfo.display_name,
-        picture_url: linkingInfo.picture_url,
-        language: linkingInfo.language,
-      },
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          username: checkUsername,
+          data: usernameCheck,
+          timestamp: new Date().toISOString(),
+        }),
+      }
     }
 
-    // If linked, include Prima789 account data
-    if (isLinked) {
-      responseData.data = {
-        prima789_username: linkingInfo.prima789_username,
-        display_name:
-          linkingInfo.first_name && linkingInfo.last_name
-            ? `${linkingInfo.first_name} ${linkingInfo.last_name}`
-            : linkingInfo.prima789_username,
-        balance: parseFloat(linkingInfo.balance) || 0,
-        tier: linkingInfo.tier || 'Bronze',
-        points: parseInt(linkingInfo.points) || 0,
-        total_transactions: parseInt(linkingInfo.total_transactions) || 0,
-        link_method: linkingInfo.link_method,
-        linked_at: linkingInfo.linked_at,
-        last_updated: linkingInfo.updated_at,
+    if (lineUserId) {
+      console.log('👤 Checking user linking:', lineUserId)
+      const linkingData = await checkUserLinking(lineUserId)
+
+      if (!linkingData) {
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            success: true,
+            isLinked: false,
+            lineUserId: lineUserId,
+            message: 'User not found or not linked',
+            data: null,
+            timestamp: new Date().toISOString(),
+          }),
+        }
       }
 
-      responseData.message = 'Account is linked successfully'
+      const isLinked = linkingData.is_linked && linkingData.link_active
 
-      await logSystemEvent(
-        'INFO',
-        'check-account-linking',
-        `Account linked check: ${lineUserId} -> ${linkingInfo.prima789_username}`,
-        { is_linked: true, prima789_username: linkingInfo.prima789_username },
-        lineUserId
-      )
-    } else {
-      responseData.message = 'Account is not linked to any Prima789 account'
+      const responseData = {
+        success: true,
+        isLinked: isLinked,
+        lineUserId: lineUserId,
+        data: isLinked
+          ? {
+              // LINE user data
+              displayName: linkingData.display_name,
+              pictureUrl: linkingData.picture_url,
 
-      await logSystemEvent(
-        'INFO',
-        'check-account-linking',
-        `Account not linked: ${lineUserId}`,
-        { is_linked: false },
-        lineUserId
-      )
+              // Prima789 account data
+              username: linkingData.username,
+              mm_user: linkingData.mm_user,
+              fullName: `${linkingData.first_name || ''} ${
+                linkingData.last_name || ''
+              }`.trim(),
+              firstName: linkingData.first_name,
+              lastName: linkingData.last_name,
+              accNo: linkingData.acc_no,
+              bankName: linkingData.bank_name,
+              available: parseFloat(linkingData.available) || 0,
+              balance: parseFloat(linkingData.available) || 0,
+              creditLimit: parseFloat(linkingData.credit_limit) || 0,
+              betCredit: parseFloat(linkingData.bet_credit) || 0,
+              tier: linkingData.tier || 'Bronze',
+              points: parseInt(linkingData.points) || 0,
+
+              // Link metadata
+              linkMethod: linkingData.link_method,
+              linkedAt: linkingData.linked_at,
+              lastLogin: linkingData.last_login,
+              lastUpdated: linkingData.account_updated,
+            }
+          : null,
+        timestamp: new Date().toISOString(),
+      }
+
+      console.log('✅ User linking check completed:', {
+        isLinked: isLinked,
+        username: linkingData.username,
+      })
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify(responseData),
+      }
     }
 
-    console.log(
-      `✅ Linking check result for ${lineUserId}: ${
-        isLinked ? 'LINKED' : 'NOT_LINKED'
-      }`
-    )
-
+    // No specific request - return usage info
     return {
-      statusCode: 200,
+      statusCode: 400,
       headers,
-      body: JSON.stringify(responseData),
+      body: JSON.stringify({
+        success: false,
+        error: 'Missing required parameter',
+        message: 'Please provide lineUserId, checkUsername, or stats=true',
+        usage: {
+          check_linking: '?lineUserId=USER_ID',
+          check_username: '?checkUsername=USERNAME',
+          get_stats: '?stats=true',
+        },
+      }),
     }
   } catch (error) {
-    console.error('❌ Check Account Linking Error:', error)
-
-    await logSystemEvent(
-      'ERROR',
-      'check-account-linking',
-      `Error checking account linking: ${error.message}`,
-      { error: error.message, stack: error.stack }
-    )
+    console.error('❌ Check account linking error:', error)
+    console.error('Stack trace:', error.stack)
 
     return {
       statusCode: 500,
@@ -156,9 +336,8 @@ exports.handler = async (event, context) => {
       body: JSON.stringify({
         success: false,
         error: 'Internal server error',
-        message: 'Failed to check account linking status',
-        details:
-          process.env.NODE_ENV === 'development' ? error.message : undefined,
+        message: 'Failed to check account linking',
+        timestamp: new Date().toISOString(),
       }),
     }
   }

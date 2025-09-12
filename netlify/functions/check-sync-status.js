@@ -1,224 +1,428 @@
-const {
-  getSocketSyncSession,
-  completeSocketSyncSession,
-  createAccountLink,
-  checkUserLinking,
-  logSystemEvent,
-  createTransaction,
-} = require('./utils/database')
+/**
+ * Check Sync Status Function
+ * Netlify Function: /.netlify/functions/check-sync-status
+ *
+ * ตรวจสอบสถานะการ sync ข้อมูลระหว่าง LINE และ Prima789
+ */
 
+const { Pool } = require('pg')
+
+// Database configuration
+let pool = null
+
+function initializeDatabase() {
+  if (pool) return pool
+
+  try {
+    const databaseUrl =
+      process.env.NETLIFY_DATABASE_URL || process.env.DATABASE_URL
+
+    if (!databaseUrl) {
+      throw new Error('Database URL not configured')
+    }
+
+    pool = new Pool({
+      connectionString: databaseUrl,
+      ssl: databaseUrl.includes('localhost')
+        ? false
+        : { rejectUnauthorized: false },
+      max: 3,
+      min: 1,
+      idleTimeoutMillis: 30000,
+    })
+
+    console.log('✅ Database initialized for check-sync-status')
+    return pool
+  } catch (error) {
+    console.error('❌ Database initialization failed:', error)
+    throw error
+  }
+}
+
+// Execute database query
+async function executeQuery(query, params = []) {
+  const client = initializeDatabase()
+
+  try {
+    console.log('🔍 Executing query:', query.substring(0, 100) + '...')
+    const result = await client.query(query, params)
+    console.log('✅ Query success, rows:', result.rowCount)
+    return result
+  } catch (error) {
+    console.error('❌ Query error:', error)
+    throw error
+  }
+}
+
+// Get user sync status
+async function getUserSyncStatus(lineUserId) {
+  try {
+    const query = `
+            SELECT 
+                -- LINE User Info
+                lu.line_user_id,
+                lu.display_name,
+                lu.is_linked,
+                lu.prima789_username,
+                lu.created_at as line_user_created,
+                lu.updated_at as line_user_updated,
+                
+                -- Account Link Info
+                al.id as link_id,
+                al.link_method,
+                al.linked_at,
+                al.is_active as link_active,
+                al.updated_at as link_updated,
+                
+                -- Prima789 Account Info
+                pa.id as account_id,
+                pa.username as prima789_username,
+                pa.available,
+                pa.credit_limit,
+                pa.bet_credit,
+                pa.tier,
+                pa.points,
+                pa.last_login,
+                pa.updated_at as account_updated,
+                
+                -- Recent Transaction Info
+                (SELECT COUNT(*) 
+                 FROM transactions t 
+                 WHERE t.username = pa.username 
+                 AND t.created_at > NOW() - INTERVAL '24 hours') as transactions_24h,
+                 
+                (SELECT MAX(created_at) 
+                 FROM transactions t 
+                 WHERE t.username = pa.username) as last_transaction_date,
+                 
+                -- Sync Health Indicators
+                CASE 
+                    WHEN pa.updated_at > NOW() - INTERVAL '5 minutes' THEN 'active'
+                    WHEN pa.updated_at > NOW() - INTERVAL '1 hour' THEN 'recent'
+                    WHEN pa.updated_at > NOW() - INTERVAL '24 hours' THEN 'stale'
+                    ELSE 'inactive'
+                END as sync_health,
+                
+                EXTRACT(EPOCH FROM (NOW() - pa.updated_at)) as seconds_since_update
+                
+            FROM line_users lu
+            LEFT JOIN account_links al ON lu.line_user_id = al.line_user_id AND al.is_active = TRUE
+            LEFT JOIN prima789_accounts pa ON al.prima789_username = pa.username
+            WHERE lu.line_user_id = $1;
+        `
+
+    const result = await executeQuery(query, [lineUserId])
+
+    if (result.rows.length === 0) {
+      return null
+    }
+
+    return result.rows[0]
+  } catch (error) {
+    console.error('❌ Error getting user sync status:', error)
+    throw error
+  }
+}
+
+// Get overall sync statistics
+async function getSyncStatistics() {
+  try {
+    const queries = [
+      // User statistics
+      `SELECT 
+                COUNT(*) as total_users,
+                COUNT(CASE WHEN is_linked = TRUE THEN 1 END) as linked_users,
+                COUNT(CASE WHEN created_at > NOW() - INTERVAL '24 hours' THEN 1 END) as new_users_24h
+            FROM line_users`,
+
+      // Account sync health
+      `SELECT 
+                COUNT(*) as total_accounts,
+                COUNT(CASE WHEN updated_at > NOW() - INTERVAL '5 minutes' THEN 1 END) as active_accounts,
+                COUNT(CASE WHEN updated_at > NOW() - INTERVAL '1 hour' THEN 1 END) as recent_accounts,
+                COUNT(CASE WHEN updated_at > NOW() - INTERVAL '24 hours' THEN 1 END) as daily_active_accounts
+            FROM prima789_accounts WHERE is_active = TRUE`,
+
+      // Transaction activity
+      `SELECT 
+                COUNT(*) as total_transactions,
+                COUNT(CASE WHEN created_at > NOW() - INTERVAL '1 hour' THEN 1 END) as transactions_1h,
+                COUNT(CASE WHEN created_at > NOW() - INTERVAL '24 hours' THEN 1 END) as transactions_24h,
+                COUNT(DISTINCT username) as active_users_24h
+            FROM transactions WHERE created_at > NOW() - INTERVAL '7 days'`,
+
+      // System events
+      `SELECT 
+                COUNT(*) as total_events,
+                COUNT(CASE WHEN level = 'ERROR' THEN 1 END) as error_events,
+                COUNT(CASE WHEN created_at > NOW() - INTERVAL '1 hour' THEN 1 END) as events_1h
+            FROM system_logs WHERE created_at > NOW() - INTERVAL '24 hours'`,
+    ]
+
+    const results = await Promise.all(
+      queries.map((query) => executeQuery(query))
+    )
+
+    return {
+      users: results[0].rows[0],
+      accounts: results[1].rows[0],
+      transactions: results[2].rows[0],
+      system: results[3].rows[0],
+    }
+  } catch (error) {
+    console.error('❌ Error getting sync statistics:', error)
+    throw error
+  }
+}
+
+// Get recent sync activities
+async function getRecentSyncActivity(limit = 10) {
+  try {
+    const query = `
+            SELECT 
+                'transaction' as activity_type,
+                t.transaction_type,
+                t.username,
+                t.amount,
+                t.created_at,
+                t.details,
+                lu.display_name,
+                NULL as link_method
+            FROM transactions t
+            LEFT JOIN account_links al ON t.username = al.prima789_username
+            LEFT JOIN line_users lu ON al.line_user_id = lu.line_user_id
+            WHERE t.created_at > NOW() - INTERVAL '24 hours'
+            
+            UNION ALL
+            
+            SELECT 
+                'account_link' as activity_type,
+                'account_linked' as transaction_type,
+                al.prima789_username as username,
+                0 as amount,
+                al.linked_at as created_at,
+                json_build_object('method', al.link_method) as details,
+                lu.display_name,
+                al.link_method
+            FROM account_links al
+            LEFT JOIN line_users lu ON al.line_user_id = lu.line_user_id
+            WHERE al.linked_at > NOW() - INTERVAL '24 hours'
+            AND al.is_active = TRUE
+            
+            ORDER BY created_at DESC
+            LIMIT $1;
+        `
+
+    const result = await executeQuery(query, [limit])
+    return result.rows
+  } catch (error) {
+    console.error('❌ Error getting recent sync activity:', error)
+    throw error
+  }
+}
+
+// Get sync issues/errors
+async function getSyncIssues(limit = 20) {
+  try {
+    const query = `
+            SELECT 
+                level,
+                source,
+                message,
+                details,
+                created_at
+            FROM system_logs 
+            WHERE level IN ('ERROR', 'WARN')
+            AND created_at > NOW() - INTERVAL '24 hours'
+            ORDER BY created_at DESC
+            LIMIT $1;
+        `
+
+    const result = await executeQuery(query, [limit])
+    return result.rows
+  } catch (error) {
+    console.error('❌ Error getting sync issues:', error)
+    throw error
+  }
+}
+
+// Analyze sync performance
+async function analyzeSyncPerformance() {
+  try {
+    const query = `
+            WITH sync_metrics AS (
+                SELECT 
+                    pa.username,
+                    pa.updated_at as last_sync,
+                    COUNT(t.id) as transaction_count,
+                    MAX(t.created_at) as last_transaction,
+                    EXTRACT(EPOCH FROM (NOW() - pa.updated_at)) as sync_age_seconds
+                FROM prima789_accounts pa
+                LEFT JOIN transactions t ON pa.username = t.username 
+                    AND t.created_at > NOW() - INTERVAL '24 hours'
+                WHERE pa.is_active = TRUE
+                GROUP BY pa.username, pa.updated_at
+            )
+            SELECT 
+                COUNT(*) as total_accounts,
+                AVG(sync_age_seconds) as avg_sync_age_seconds,
+                COUNT(CASE WHEN sync_age_seconds < 300 THEN 1 END) as accounts_synced_5min,
+                COUNT(CASE WHEN sync_age_seconds < 3600 THEN 1 END) as accounts_synced_1hour,
+                COUNT(CASE WHEN sync_age_seconds >= 86400 THEN 1 END) as accounts_stale_24h,
+                SUM(transaction_count) as total_transactions_24h,
+                AVG(transaction_count) as avg_transactions_per_account
+            FROM sync_metrics;
+        `
+
+    const result = await executeQuery(query)
+    return result.rows[0]
+  } catch (error) {
+    console.error('❌ Error analyzing sync performance:', error)
+    throw error
+  }
+}
+
+// Main handler
 exports.handler = async (event, context) => {
-  console.log('🔌 Check Socket Sync Status - Start')
+  console.log('📊 Check Sync Status - Start')
+  console.log('📊 Request info:', {
+    method: event.httpMethod,
+    query: event.queryStringParameters,
+  })
 
   // CORS headers
   const headers = {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Content-Type': 'application/json',
   }
 
+  // Handle preflight
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' }
   }
 
-  if (event.httpMethod !== 'GET') {
-    return {
-      statusCode: 405,
-      headers,
-      body: JSON.stringify({
-        success: false,
-        error: 'Method not allowed',
-        message: 'Only GET method is supported',
-      }),
-    }
-  }
-
   try {
-    const { syncId } = event.queryStringParameters || {}
+    // Parse request parameters
+    const params = event.queryStringParameters || {}
+    const lineUserId = params.lineUserId || params.line_user_id
+    const getStats = params.stats === 'true'
+    const getActivity = params.activity === 'true'
+    const getIssues = params.issues === 'true'
+    const getPerformance = params.performance === 'true'
+    const getOverall = params.overall === 'true'
 
-    if (!syncId) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({
-          success: false,
-          error: 'Sync ID is required',
-          message: 'Please provide syncId parameter',
-        }),
+    // Initialize database
+    initializeDatabase()
+
+    // Handle specific user sync status
+    if (lineUserId) {
+      console.log('👤 Checking sync status for user:', lineUserId)
+
+      const userStatus = await getUserSyncStatus(lineUserId)
+
+      if (!userStatus) {
+        return {
+          statusCode: 404,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            error: 'User not found',
+            message: 'LINE user not found in database',
+            lineUserId: lineUserId,
+          }),
+        }
       }
-    }
 
-    console.log(`Checking sync status for: ${syncId}`)
+      const isLinked = userStatus.is_linked && userStatus.link_active
 
-    // Get sync session
-    const syncSession = await getSocketSyncSession(syncId)
+      const responseData = {
+        success: true,
+        lineUserId: lineUserId,
+        isLinked: isLinked,
+        syncStatus: isLinked
+          ? {
+              health: userStatus.sync_health,
+              lastSyncAge: Math.floor(userStatus.seconds_since_update || 0),
+              lastSyncTime: userStatus.account_updated,
+              lastTransactionTime: userStatus.last_transaction_date,
+              transactions24h: parseInt(userStatus.transactions_24h) || 0,
 
-    if (!syncSession) {
-      await logSystemEvent(
-        'WARN',
-        'check-sync-status',
-        `Socket sync session not found: ${syncId}`,
-        { sync_id: syncId }
-      )
+              account: {
+                username: userStatus.prima789_username,
+                balance: parseFloat(userStatus.available) || 0,
+                tier: userStatus.tier,
+                points: parseInt(userStatus.points) || 0,
+                lastLogin: userStatus.last_login,
+              },
 
-      return {
-        statusCode: 404,
-        headers,
-        body: JSON.stringify({
-          success: false,
-          error: 'Sync session not found',
-          message: 'Socket sync session does not exist or has expired',
-        }),
+              link: {
+                method: userStatus.link_method,
+                linkedAt: userStatus.linked_at,
+                isActive: userStatus.link_active,
+              },
+            }
+          : null,
+        timestamp: new Date().toISOString(),
       }
-    }
-
-    const now = new Date()
-    const expiresAt = new Date(syncSession.expires_at)
-    const isExpired = now > expiresAt
-
-    // Check if session is expired
-    if (isExpired && syncSession.status === 'waiting') {
-      await logSystemEvent(
-        'INFO',
-        'check-sync-status',
-        `Socket sync session expired: ${syncId}`,
-        { sync_session: syncSession }
-      )
-
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({
-          success: true,
-          completed: false,
-          expired: true,
-          status: 'expired',
-          message: 'Sync session has expired. Please try again.',
-          sync_session: {
-            sync_id: syncSession.sync_id,
-            status: 'expired',
-            created_at: syncSession.created_at,
-            expires_at: syncSession.expires_at,
-          },
-        }),
-      }
-    }
-
-    // Check if session is completed
-    if (syncSession.status === 'completed') {
-      console.log(`Socket sync completed: ${syncId}`)
-
-      const prima789Data = syncSession.prima789_data
-        ? JSON.parse(syncSession.prima789_data)
-        : null
-
-      // Check if account linking was successful
-      const linkingInfo = await checkUserLinking(syncSession.line_user_id)
-      const isAccountLinked = linkingInfo && linkingInfo.is_linked
-
-      await logSystemEvent(
-        'INFO',
-        'check-sync-status',
-        `Socket sync status checked - completed: ${syncId}`,
-        {
-          sync_session: syncSession,
-          account_linked: isAccountLinked,
-          prima789_data: prima789Data,
-        },
-        syncSession.line_user_id
-      )
 
       return {
         statusCode: 200,
         headers,
-        body: JSON.stringify({
-          success: true,
-          completed: true,
-          expired: false,
-          status: 'completed',
-          accountLinked: isAccountLinked,
-          message: isAccountLinked
-            ? 'Account linking completed successfully!'
-            : 'Sync completed but linking failed',
-          sync_session: {
-            sync_id: syncSession.sync_id,
-            line_user_id: syncSession.line_user_id,
-            status: syncSession.status,
-            completed_at: syncSession.completed_at,
-            created_at: syncSession.created_at,
-            expires_at: syncSession.expires_at,
-          },
-          account: isAccountLinked
-            ? {
-                prima789_username: linkingInfo.prima789_username,
-                display_name:
-                  linkingInfo.first_name && linkingInfo.last_name
-                    ? `${linkingInfo.first_name} ${linkingInfo.last_name}`
-                    : linkingInfo.prima789_username,
-                balance: parseFloat(linkingInfo.balance) || 0,
-                tier: linkingInfo.tier || 'Bronze',
-                points: parseInt(linkingInfo.points) || 0,
-                linked_at: linkingInfo.linked_at,
-              }
-            : null,
-          prima789_data: prima789Data,
-        }),
+        body: JSON.stringify(responseData),
       }
     }
 
-    // Session is still waiting
-    console.log(`Socket sync still waiting: ${syncId}`)
+    // Handle different types of status requests
+    let responseData = {
+      success: true,
+      timestamp: new Date().toISOString(),
+    }
 
-    const timeRemaining = Math.max(0, Math.floor((expiresAt - now) / 1000))
+    if (getStats || getOverall) {
+      console.log('📊 Getting sync statistics')
+      responseData.statistics = await getSyncStatistics()
+    }
 
-    await logSystemEvent(
-      'DEBUG',
-      'check-sync-status',
-      `Socket sync status checked - waiting: ${syncId}`,
-      {
-        sync_session: syncSession,
-        time_remaining: timeRemaining,
-      },
-      syncSession.line_user_id
-    )
+    if (getActivity || getOverall) {
+      console.log('🔄 Getting recent sync activity')
+      responseData.recentActivity = await getRecentSyncActivity(15)
+    }
+
+    if (getIssues || getOverall) {
+      console.log('⚠️ Getting sync issues')
+      responseData.issues = await getSyncIssues(10)
+    }
+
+    if (getPerformance || getOverall) {
+      console.log('📈 Analyzing sync performance')
+      responseData.performance = await analyzeSyncPerformance()
+    }
+
+    // If no specific request, provide basic stats
+    if (
+      !getStats &&
+      !getActivity &&
+      !getIssues &&
+      !getPerformance &&
+      !getOverall
+    ) {
+      console.log('📋 Getting basic sync status')
+      responseData.statistics = await getSyncStatistics()
+      responseData.performance = await analyzeSyncPerformance()
+    }
+
+    console.log('✅ Sync status check completed')
 
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({
-        success: true,
-        completed: false,
-        expired: false,
-        status: 'waiting',
-        message: 'Waiting for Prima789 login to complete linking',
-        sync_session: {
-          sync_id: syncSession.sync_id,
-          line_user_id: syncSession.line_user_id,
-          status: syncSession.status,
-          created_at: syncSession.created_at,
-          expires_at: syncSession.expires_at,
-          time_remaining_seconds: timeRemaining,
-        },
-        instructions: {
-          step1: 'Open Prima789.com in a new tab',
-          step2: 'Login with your Prima789 account',
-          step3: 'Return to this page - linking will complete automatically',
-          timeout: `This session will expire in ${Math.ceil(
-            timeRemaining / 60
-          )} minutes`,
-        },
-      }),
+      body: JSON.stringify(responseData),
     }
   } catch (error) {
-    console.error('❌ Check Socket Sync Status Error:', error)
-
-    await logSystemEvent(
-      'ERROR',
-      'check-sync-status',
-      `Socket sync status check error: ${error.message}`,
-      { error: error.message, stack: error.stack }
-    )
+    console.error('❌ Check sync status error:', error)
+    console.error('Stack trace:', error.stack)
 
     return {
       statusCode: 500,
@@ -226,99 +430,9 @@ exports.handler = async (event, context) => {
       body: JSON.stringify({
         success: false,
         error: 'Internal server error',
-        message: 'Failed to check socket sync status',
-        details:
-          process.env.NODE_ENV === 'development' ? error.message : undefined,
+        message: 'Failed to check sync status',
+        timestamp: new Date().toISOString(),
       }),
     }
-  }
-}
-
-// Register socket sync session (called from transaction webhook)
-exports.registerSocketSync = async (syncId, prima789Data) => {
-  try {
-    console.log(`Registering socket sync completion: ${syncId}`)
-
-    // Complete the sync session
-    const completedSession = await completeSocketSyncSession(
-      syncId,
-      prima789Data
-    )
-
-    if (!completedSession) {
-      throw new Error('Failed to complete socket sync session')
-    }
-
-    // Create account link
-    const { username } = prima789Data
-    if (username && completedSession.line_user_id) {
-      try {
-        await createAccountLink(
-          completedSession.line_user_id,
-          username,
-          'socket'
-        )
-
-        // Create linking transaction
-        await createTransaction({
-          transaction_id: `socket_link_${Date.now()}_${Math.random()
-            .toString(36)
-            .substr(2, 5)}`,
-          line_user_id: completedSession.line_user_id,
-          prima789_username: username,
-          transaction_type: 'account_link',
-          amount: 0,
-          balance_after: parseFloat(prima789Data.available) || 0,
-          description: `Account linked via socket sync: ${syncId}`,
-          source: 'socket_sync',
-          details: {
-            sync_id: syncId,
-            link_method: 'socket',
-            prima789_data: prima789Data,
-          },
-        })
-
-        await logSystemEvent(
-          'INFO',
-          'registerSocketSync',
-          `Socket sync linking successful: ${completedSession.line_user_id} -> ${username}`,
-          {
-            sync_id: syncId,
-            line_user_id: completedSession.line_user_id,
-            prima789_username: username,
-          },
-          completedSession.line_user_id
-        )
-
-        console.log(`✅ Socket sync registered and linked: ${syncId}`)
-      } catch (linkError) {
-        console.error('Socket sync linking error:', linkError)
-
-        await logSystemEvent(
-          'ERROR',
-          'registerSocketSync',
-          `Socket sync linking failed: ${linkError.message}`,
-          {
-            sync_id: syncId,
-            error: linkError.message,
-            prima789_data: prima789Data,
-          },
-          completedSession.line_user_id
-        )
-      }
-    }
-
-    return completedSession
-  } catch (error) {
-    console.error('Register socket sync error:', error)
-
-    await logSystemEvent(
-      'ERROR',
-      'registerSocketSync',
-      `Socket sync registration error: ${error.message}`,
-      { sync_id: syncId, error: error.message }
-    )
-
-    throw error
   }
 }

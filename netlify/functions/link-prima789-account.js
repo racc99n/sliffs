@@ -1,28 +1,366 @@
-const {
-  upsertLineUser,
-  searchPrima789Account,
-  getPrima789Account,
-  createAccountLink,
-  createSocketSyncSession,
-  logSystemEvent,
-  createTransaction,
-} = require('./utils/database')
+/**
+ * Link Prima789 Account Function
+ * Netlify Function: /.netlify/functions/link-prima789-account
+ *
+ * เชื่อมต่อบัญชี LINE กับ Prima789
+ */
 
+const { Pool } = require('pg')
+const crypto = require('crypto')
+
+// Database configuration
+let pool = null
+
+function initializeDatabase() {
+  if (pool) return pool
+
+  try {
+    const databaseUrl =
+      process.env.NETLIFY_DATABASE_URL || process.env.DATABASE_URL
+
+    if (!databaseUrl) {
+      throw new Error('Database URL not configured')
+    }
+
+    pool = new Pool({
+      connectionString: databaseUrl,
+      ssl: databaseUrl.includes('localhost')
+        ? false
+        : { rejectUnauthorized: false },
+      max: 5,
+      min: 1,
+      idleTimeoutMillis: 30000,
+    })
+
+    console.log('✅ Database initialized for link-prima789-account')
+    return pool
+  } catch (error) {
+    console.error('❌ Database initialization failed:', error)
+    throw error
+  }
+}
+
+// Execute database query
+async function executeQuery(query, params = []) {
+  const client = initializeDatabase()
+
+  try {
+    console.log('🔍 Executing query:', query.substring(0, 100) + '...')
+    const result = await client.query(query, params)
+    console.log('✅ Query success, rows:', result.rowCount)
+    return result
+  } catch (error) {
+    console.error('❌ Query error:', error)
+    throw error
+  }
+}
+
+// Execute transaction
+async function executeTransaction(queries) {
+  const client = await pool.connect()
+
+  try {
+    await client.query('BEGIN')
+
+    const results = []
+    for (const { query, params } of queries) {
+      const result = await client.query(query, params)
+      results.push(result)
+    }
+
+    await client.query('COMMIT')
+    return results
+  } catch (error) {
+    await client.query('ROLLBACK')
+    throw error
+  } finally {
+    client.release()
+  }
+}
+
+// Search Prima789 account by credentials
+async function searchPrima789Account(searchCriteria) {
+  try {
+    const { username, password, phone, displayName, autoDetect } =
+      searchCriteria
+
+    let whereClause = 'WHERE is_active = TRUE'
+    let params = []
+    let paramCount = 0
+
+    if (username) {
+      paramCount++
+      whereClause += ` AND (username ILIKE $${paramCount} OR mm_user ILIKE $${paramCount})`
+      params.push(username)
+    }
+
+    if (phone) {
+      paramCount++
+      whereClause += ` AND (tel = $${paramCount} OR acc_no = $${paramCount})`
+      params.push(phone)
+    }
+
+    if (displayName && autoDetect) {
+      paramCount++
+      whereClause += ` AND (CONCAT(first_name, ' ', last_name) ILIKE $${paramCount} OR first_name ILIKE $${paramCount})`
+      params.push(`%${displayName}%`)
+    }
+
+    const query = `
+            SELECT 
+                id,
+                username,
+                mm_user,
+                first_name,
+                last_name,
+                acc_no,
+                tel,
+                email,
+                bank_name,
+                bank_id,
+                available,
+                credit_limit,
+                bet_credit,
+                tier,
+                points,
+                member_ref,
+                register_time,
+                last_login,
+                created_at,
+                updated_at,
+                -- Check if already linked
+                EXISTS(SELECT 1 FROM account_links WHERE prima789_username = username AND is_active = TRUE) as is_already_linked
+            FROM prima789_accounts 
+            ${whereClause}
+            ORDER BY 
+                CASE WHEN username = $1 THEN 1
+                     WHEN mm_user = $1 THEN 2
+                     ELSE 3 END,
+                last_login DESC NULLS LAST,
+                updated_at DESC
+            LIMIT 10
+        `
+
+    // Add original username as first param for ordering
+    const finalParams = username ? [username, ...params.slice()] : params
+    const result = await executeQuery(query, finalParams)
+
+    return result.rows
+  } catch (error) {
+    console.error('❌ Error searching Prima789 account:', error)
+    throw error
+  }
+}
+
+// Verify account credentials (simplified - in real scenario you'd check password hash)
+async function verifyAccountCredentials(username, password) {
+  try {
+    // In a real scenario, you would verify the password hash
+    // For now, we'll just check if the account exists and is active
+    const query = `
+            SELECT 
+                id,
+                username,
+                mm_user,
+                first_name,
+                last_name,
+                acc_no,
+                tel,
+                email,
+                bank_name,
+                available,
+                credit_limit,
+                bet_credit,
+                tier,
+                points,
+                last_login,
+                is_active
+            FROM prima789_accounts 
+            WHERE (username = $1 OR mm_user = $1) 
+            AND is_active = TRUE
+        `
+
+    const result = await executeQuery(query, [username])
+
+    if (result.rows.length === 0) {
+      return { success: false, message: 'Account not found' }
+    }
+
+    const account = result.rows[0]
+
+    // Check if already linked
+    const linkQuery = `
+            SELECT line_user_id 
+            FROM account_links 
+            WHERE prima789_username = $1 AND is_active = TRUE
+        `
+
+    const linkResult = await executeQuery(linkQuery, [account.username])
+
+    if (linkResult.rows.length > 0) {
+      return {
+        success: false,
+        message: 'Account is already linked to another LINE user',
+        linkedToUser: linkResult.rows[0].line_user_id,
+      }
+    }
+
+    return { success: true, account }
+  } catch (error) {
+    console.error('❌ Error verifying account credentials:', error)
+    throw error
+  }
+}
+
+// Create account link
+async function createAccountLink(
+  lineUserId,
+  prima789Username,
+  linkMethod = 'manual',
+  userData = {}
+) {
+  try {
+    const queries = [
+      // Create or update account link
+      {
+        query: `
+                    INSERT INTO account_links (
+                        line_user_id, 
+                        prima789_username, 
+                        link_method, 
+                        linked_at, 
+                        is_active
+                    ) VALUES ($1, $2, $3, CURRENT_TIMESTAMP, TRUE)
+                    ON CONFLICT (line_user_id, prima789_username)
+                    DO UPDATE SET
+                        is_active = TRUE,
+                        link_method = EXCLUDED.link_method,
+                        linked_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    RETURNING *
+                `,
+        params: [lineUserId, prima789Username, linkMethod],
+      },
+
+      // Update LINE user as linked
+      {
+        query: `
+                    UPDATE line_users 
+                    SET 
+                        is_linked = TRUE, 
+                        prima789_username = $2,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE line_user_id = $1
+                    RETURNING *
+                `,
+        params: [lineUserId, prima789Username],
+      },
+
+      // Log the linking event
+      {
+        query: `
+                    INSERT INTO system_logs (
+                        level, 
+                        source, 
+                        message, 
+                        details, 
+                        created_at
+                    ) VALUES (
+                        'INFO', 
+                        'link-prima789-account', 
+                        'Account successfully linked', 
+                        $1, 
+                        CURRENT_TIMESTAMP
+                    )
+                `,
+        params: [
+          JSON.stringify({
+            line_user_id: lineUserId,
+            prima789_username: prima789Username,
+            link_method: linkMethod,
+            user_data: userData,
+          }),
+        ],
+      },
+    ]
+
+    const results = await executeTransaction(queries)
+
+    const linkResult = results[0]
+    const userResult = results[1]
+
+    return {
+      success: true,
+      link: linkResult.rows[0],
+      user: userResult.rows[0],
+    }
+  } catch (error) {
+    console.error('❌ Error creating account link:', error)
+    throw error
+  }
+}
+
+// Upsert LINE user data
+async function upsertLineUser(userData) {
+  try {
+    const query = `
+            INSERT INTO line_users (
+                line_user_id,
+                display_name,
+                picture_url,
+                status_message,
+                language,
+                created_at,
+                updated_at
+            ) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT (line_user_id) 
+            DO UPDATE SET
+                display_name = EXCLUDED.display_name,
+                picture_url = EXCLUDED.picture_url,
+                status_message = EXCLUDED.status_message,
+                language = EXCLUDED.language,
+                updated_at = CURRENT_TIMESTAMP
+            RETURNING *
+        `
+
+    const params = [
+      userData.userId,
+      userData.displayName || null,
+      userData.pictureUrl || null,
+      userData.statusMessage || null,
+      userData.language || 'th',
+    ]
+
+    const result = await executeQuery(query, params)
+    return result.rows[0]
+  } catch (error) {
+    console.error('❌ Error upserting LINE user:', error)
+    throw error
+  }
+}
+
+// Main handler
 exports.handler = async (event, context) => {
   console.log('🔗 Link Prima789 Account - Start')
+  console.log('📊 Request info:', {
+    method: event.httpMethod,
+    bodyLength: event.body ? event.body.length : 0,
+  })
 
   // CORS headers
   const headers = {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Content-Type': 'application/json',
   }
 
+  // Handle preflight
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' }
   }
 
+  // Only allow POST
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
@@ -36,105 +374,234 @@ exports.handler = async (event, context) => {
   }
 
   try {
-    const requestData = JSON.parse(event.body || '{}')
-    const {
-      lineUserId,
-      userProfile,
-      syncMethod,
-      username,
-      prima789AccountData,
-    } = requestData
-
-    // Validate required data
-    if (!lineUserId || !userProfile) {
+    // Parse request body
+    if (!event.body) {
       return {
         statusCode: 400,
         headers,
         body: JSON.stringify({
           success: false,
-          error: 'Missing required data',
-          message: 'lineUserId and userProfile are required',
+          error: 'Request body required',
+          message: 'Please provide linking data in request body',
         }),
       }
     }
 
-    console.log(
-      `Processing account linking for ${lineUserId} with method: ${syncMethod}`
-    )
+    const requestData = JSON.parse(event.body)
+    console.log('📋 Linking request data:', {
+      lineUserId: requestData.lineUserId,
+      syncMethod: requestData.syncMethod,
+      hasUsername: !!requestData.username,
+      hasPassword: !!requestData.password,
+    })
 
-    // Upsert LINE user first
-    await upsertLineUser(userProfile)
+    // Validate required fields
+    const { lineUserId, syncMethod } = requestData
 
-    let result = {}
+    if (!lineUserId) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({
+          success: false,
+          error: 'Missing lineUserId',
+          message: 'LINE User ID is required',
+        }),
+      }
+    }
 
-    switch (syncMethod) {
-      case 'auto':
-        result = await handleAutoSync(lineUserId, userProfile)
-        break
-      case 'manual':
-        if (!username) {
-          return {
-            statusCode: 400,
-            headers,
-            body: JSON.stringify({
-              success: false,
-              error: 'Username is required for manual sync',
-            }),
-          }
-        }
-        result = await handleManualSync(lineUserId, userProfile, username)
-        break
-      case 'socket':
-        result = await handleSocketSync(lineUserId, userProfile)
-        break
-      case 'direct':
-        if (!prima789AccountData) {
-          return {
-            statusCode: 400,
-            headers,
-            body: JSON.stringify({
-              success: false,
-              error: 'Prima789 account data is required for direct sync',
-            }),
-          }
-        }
-        result = await handleDirectSync(
-          lineUserId,
-          userProfile,
-          prima789AccountData
-        )
-        break
-      default:
+    if (!syncMethod || !['manual', 'auto'].includes(syncMethod)) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({
+          success: false,
+          error: 'Invalid syncMethod',
+          message: 'syncMethod must be "manual" or "auto"',
+        }),
+      }
+    }
+
+    // Initialize database
+    initializeDatabase()
+
+    // Upsert LINE user data if provided
+    if (requestData.userData) {
+      await upsertLineUser(requestData.userData)
+    }
+
+    let accountFound = null
+    let linkResult = null
+
+    // Process based on sync method
+    if (syncMethod === 'manual') {
+      // Manual linking with username/password
+      const { username, password } = requestData
+
+      if (!username) {
         return {
           statusCode: 400,
           headers,
           body: JSON.stringify({
             success: false,
-            error: 'Invalid sync method',
-            message: 'Supported methods: auto, manual, socket, direct',
+            error: 'Missing credentials',
+            message: 'Username is required for manual linking',
           }),
         }
+      }
+
+      console.log('👤 Manual linking for user:', username)
+
+      // Verify account credentials
+      const verification = await verifyAccountCredentials(username, password)
+
+      if (!verification.success) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            accountFound: false,
+            error: 'Account verification failed',
+            message: verification.message,
+          }),
+        }
+      }
+
+      accountFound = verification.account
+    } else if (syncMethod === 'auto') {
+      // Auto-detection based on user profile
+      console.log('🔄 Auto-detection linking')
+
+      const searchCriteria = {
+        username: requestData.username,
+        phone: requestData.phone || requestData.userData?.phone,
+        displayName: requestData.userData?.displayName,
+        autoDetect: true,
+      }
+
+      const accounts = await searchPrima789Account(searchCriteria)
+
+      if (accounts.length === 0) {
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            accountFound: false,
+            message: 'No matching Prima789 account found',
+            suggestions: [
+              'Try manual linking with username and password',
+              'Contact support if you have an account',
+            ],
+          }),
+        }
+      }
+
+      // Use the best matching account (first in ordered results)
+      const bestMatch =
+        accounts.find((acc) => !acc.is_already_linked) || accounts[0]
+
+      if (bestMatch.is_already_linked) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            accountFound: true,
+            error: 'Account already linked',
+            message:
+              'The matching account is already linked to another LINE user',
+            account: {
+              username: bestMatch.username,
+              fullName: `${bestMatch.first_name || ''} ${
+                bestMatch.last_name || ''
+              }`.trim(),
+            },
+          }),
+        }
+      }
+
+      accountFound = bestMatch
     }
 
-    console.log(
-      `✅ Account linking result for ${lineUserId}:`,
-      result.success ? 'SUCCESS' : 'FAILED'
+    if (!accountFound) {
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({
+          success: false,
+          error: 'No account found',
+          message: 'Unable to find or verify Prima789 account',
+        }),
+      }
+    }
+
+    console.log('✅ Account found:', accountFound.username)
+
+    // Create the account link
+    linkResult = await createAccountLink(
+      lineUserId,
+      accountFound.username,
+      syncMethod,
+      requestData.userData || {}
     )
+
+    if (!linkResult.success) {
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({
+          success: false,
+          error: 'Link creation failed',
+          message: 'Failed to create account link',
+        }),
+      }
+    }
+
+    console.log('🎉 Account linking successful!')
+
+    // Prepare response data
+    const responseData = {
+      success: true,
+      accountFound: true,
+      message: 'Account linked successfully',
+      account: {
+        username: accountFound.username,
+        mm_user: accountFound.mm_user,
+        fullName: `${accountFound.first_name || ''} ${
+          accountFound.last_name || ''
+        }`.trim(),
+        firstName: accountFound.first_name,
+        lastName: accountFound.last_name,
+        accNo: accountFound.acc_no,
+        tel: accountFound.tel,
+        email: accountFound.email,
+        bankName: accountFound.bank_name,
+        available: parseFloat(accountFound.available) || 0,
+        balance: parseFloat(accountFound.available) || 0,
+        creditLimit: parseFloat(accountFound.credit_limit) || 0,
+        betCredit: parseFloat(accountFound.bet_credit) || 0,
+        tier: accountFound.tier || 'Bronze',
+        points: parseInt(accountFound.points) || 0,
+        lastLogin: accountFound.last_login,
+      },
+      link: {
+        id: linkResult.link.id,
+        method: linkResult.link.link_method,
+        linkedAt: linkResult.link.linked_at,
+      },
+      timestamp: new Date().toISOString(),
+    }
 
     return {
-      statusCode: result.success ? 200 : 400,
+      statusCode: 200,
       headers,
-      body: JSON.stringify(result),
+      body: JSON.stringify(responseData),
     }
   } catch (error) {
-    console.error('❌ Link Prima789 Account Error:', error)
-
-    await logSystemEvent(
-      'ERROR',
-      'link-prima789-account',
-      `Error linking account: ${error.message}`,
-      { error: error.message, stack: error.stack }
-    )
+    console.error('❌ Link Prima789 account error:', error)
+    console.error('Stack trace:', error.stack)
 
     return {
       statusCode: 500,
@@ -142,267 +609,9 @@ exports.handler = async (event, context) => {
       body: JSON.stringify({
         success: false,
         error: 'Internal server error',
-        message: 'Failed to link Prima789 account',
-        details:
-          process.env.NODE_ENV === 'development' ? error.message : undefined,
+        message: 'Failed to process account linking',
+        timestamp: new Date().toISOString(),
       }),
     }
-  }
-}
-
-// Handle automatic sync based on LINE profile data
-async function handleAutoSync(lineUserId, userProfile) {
-  try {
-    console.log(`Auto sync for ${lineUserId}: searching by display name`)
-
-    const searchCriteria = {
-      displayName: userProfile.displayName,
-    }
-
-    const accounts = await searchPrima789Account(searchCriteria)
-
-    if (accounts.length === 0) {
-      await logSystemEvent(
-        'INFO',
-        'handleAutoSync',
-        `No Prima789 accounts found for ${userProfile.displayName}`,
-        { search_criteria: searchCriteria },
-        lineUserId
-      )
-
-      return {
-        success: false,
-        accountFound: false,
-        message:
-          'ไม่พบบัญชี Prima789 ที่ตรงกับชื่อในโปรไฟล์ LINE กรุณาใช้วิธีกรอกข้อมูลด้วยตนเอง',
-      }
-    }
-
-    // If multiple accounts found, return the most recently active one
-    const account = accounts[0]
-
-    // Create account link
-    await createAccountLink(lineUserId, account.username, 'auto')
-
-    // Create linking transaction record
-    await createTransaction({
-      transaction_id: `link_auto_${Date.now()}_${Math.random()
-        .toString(36)
-        .substr(2, 5)}`,
-      line_user_id: lineUserId,
-      prima789_username: account.username,
-      transaction_type: 'account_link',
-      amount: 0,
-      balance_after: parseFloat(account.available) || 0,
-      description: `Account linked automatically via display name match`,
-      source: 'auto_link',
-      details: {
-        link_method: 'auto',
-        search_criteria: searchCriteria,
-        user_profile: userProfile,
-      },
-    })
-
-    await logSystemEvent(
-      'INFO',
-      'handleAutoSync',
-      `Auto sync successful: ${lineUserId} -> ${account.username}`,
-      { prima789_account: account.username, method: 'auto' },
-      lineUserId
-    )
-
-    return {
-      success: true,
-      accountFound: true,
-      account: {
-        username: account.username,
-        display_name:
-          account.first_name && account.last_name
-            ? `${account.first_name} ${account.last_name}`
-            : account.username,
-        balance: parseFloat(account.available) || 0,
-        tier: account.tier || 'Bronze',
-        points: parseInt(account.points) || 0,
-        total_transactions: parseInt(account.total_transactions) || 0,
-      },
-      message: 'เชื่อมโยงบัญชีสำเร็จ',
-    }
-  } catch (error) {
-    console.error('Auto sync error:', error)
-    throw error
-  }
-}
-
-// Handle manual sync with username
-async function handleManualSync(lineUserId, userProfile, username) {
-  try {
-    console.log(`Manual sync for ${lineUserId}: searching username ${username}`)
-
-    const account = await getPrima789Account(username)
-
-    if (!account) {
-      await logSystemEvent(
-        'INFO',
-        'handleManualSync',
-        `Prima789 account not found: ${username}`,
-        { username: username },
-        lineUserId
-      )
-
-      return {
-        success: false,
-        accountFound: false,
-        message: `ไม่พบบัญชี Prima789 ที่มี username: ${username}`,
-      }
-    }
-
-    // Create account link
-    await createAccountLink(lineUserId, account.username, 'manual')
-
-    // Create linking transaction record
-    await createTransaction({
-      transaction_id: `link_manual_${Date.now()}_${Math.random()
-        .toString(36)
-        .substr(2, 5)}`,
-      line_user_id: lineUserId,
-      prima789_username: account.username,
-      transaction_type: 'account_link',
-      amount: 0,
-      balance_after: parseFloat(account.available) || 0,
-      description: `Account linked manually via username: ${username}`,
-      source: 'manual_link',
-      details: {
-        link_method: 'manual',
-        input_username: username,
-        user_profile: userProfile,
-      },
-    })
-
-    await logSystemEvent(
-      'INFO',
-      'handleManualSync',
-      `Manual sync successful: ${lineUserId} -> ${account.username}`,
-      {
-        prima789_account: account.username,
-        method: 'manual',
-        input_username: username,
-      },
-      lineUserId
-    )
-
-    return {
-      success: true,
-      accountFound: true,
-      account: {
-        username: account.username,
-        display_name:
-          account.first_name && account.last_name
-            ? `${account.first_name} ${account.last_name}`
-            : account.username,
-        balance: parseFloat(account.available) || 0,
-        tier: account.tier || 'Bronze',
-        points: parseInt(account.points) || 0,
-        total_transactions: parseInt(account.total_transactions) || 0,
-      },
-      message: 'เชื่อมโยงบัญชีสำเร็จ',
-    }
-  } catch (error) {
-    console.error('Manual sync error:', error)
-    throw error
-  }
-}
-
-// Handle socket sync (real-time integration)
-async function handleSocketSync(lineUserId, userProfile) {
-  try {
-    console.log(`Socket sync for ${lineUserId}: creating sync session`)
-
-    const syncSession = await createSocketSyncSession(lineUserId, 10) // 10 minutes expiration
-
-    await logSystemEvent(
-      'INFO',
-      'handleSocketSync',
-      `Socket sync session created: ${syncSession.sync_id}`,
-      { sync_session: syncSession },
-      lineUserId
-    )
-
-    return {
-      success: true,
-      socketReady: true,
-      syncId: syncSession.sync_id,
-      expiresAt: syncSession.expires_at,
-      message: 'กรุณาเข้าสู่ระบบ Prima789.com เพื่อทำการเชื่อมโยงอัตโนมัติ',
-    }
-  } catch (error) {
-    console.error('Socket sync error:', error)
-    throw error
-  }
-}
-
-// Handle direct sync with Prima789 account data
-async function handleDirectSync(lineUserId, userProfile, prima789AccountData) {
-  try {
-    console.log(`Direct sync for ${lineUserId}: using provided account data`)
-
-    const { username } = prima789AccountData
-
-    if (!username) {
-      return {
-        success: false,
-        error: 'Username is required in Prima789 account data',
-      }
-    }
-
-    // Create account link
-    await createAccountLink(lineUserId, username, 'direct')
-
-    // Create linking transaction record
-    await createTransaction({
-      transaction_id: `link_direct_${Date.now()}_${Math.random()
-        .toString(36)
-        .substr(2, 5)}`,
-      line_user_id: lineUserId,
-      prima789_username: username,
-      transaction_type: 'account_link',
-      amount: 0,
-      balance_after: parseFloat(prima789AccountData.available) || 0,
-      description: `Account linked directly with provided data`,
-      source: 'direct_link',
-      details: {
-        link_method: 'direct',
-        prima789_data: prima789AccountData,
-        user_profile: userProfile,
-      },
-    })
-
-    await logSystemEvent(
-      'INFO',
-      'handleDirectSync',
-      `Direct sync successful: ${lineUserId} -> ${username}`,
-      { prima789_account: username, method: 'direct' },
-      lineUserId
-    )
-
-    return {
-      success: true,
-      accountFound: true,
-      account: {
-        username: username,
-        display_name:
-          prima789AccountData.first_name && prima789AccountData.last_name
-            ? `${prima789AccountData.first_name} ${prima789AccountData.last_name}`
-            : username,
-        balance: parseFloat(prima789AccountData.available) || 0,
-        tier: prima789AccountData.tier || 'Bronze',
-        points: parseInt(prima789AccountData.points) || 0,
-        total_transactions:
-          parseInt(prima789AccountData.total_transactions) || 0,
-      },
-      message: 'เชื่อมโยงบัญชีสำเร็จ',
-    }
-  } catch (error) {
-    console.error('Direct sync error:', error)
-    throw error
   }
 }
