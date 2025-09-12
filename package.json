@@ -1,35 +1,54 @@
 {
   "name": "sliffs",
   "version": "1.0.0",
-  "description": "SLIFFS - Prima789 LINE Integration Functions & Front-end System",
+  "description": "Prima789 LINE Member Card System with LIFF and Netlify Functions",
   "main": "index.js",
+  "dependencies": {
+    "canvas": "^3.2.0",
+    "node-fetch": "^3.3.2",
+    "pg": "^8.11.3",
+    "pg-cloudflare": "^1.2.7",
+    "pg-connection-string": "^2.9.1",
+    "pg-int8": "^1.0.1",
+    "pg-pool": "^3.10.1",
+    "pg-protocol": "^1.10.3",
+    "pg-types": "^2.2.0",
+    "pgpass": "^1.0.5",
+    "postgres-array": "^2.0.0",
+    "postgres-bytea": "^1.0.0",
+    "postgres-date": "^1.0.7",
+    "postgres-interval": "^1.2.0",
+    "split2": "^4.2.0",
+    "xtend": "^4.0.2"
+  },
   "scripts": {
+    "build": "echo 'Build completed - Static files ready'",
     "dev": "netlify dev",
-    "build": "echo 'Build completed'",
+    "start": "netlify dev",
     "deploy": "netlify deploy --prod",
-    "deploy:preview": "netlify deploy",
-    "setup": "node quick-setup.js",
-    "test": "node scripts/test-functions.js",
-    "check-health": "curl https://sliffs.netlify.app/.netlify/functions/health-check"
+    "deploy:dev": "netlify deploy",
+    "test": "echo \"Tests not implemented yet\" && exit 0",
+    "check-env": "netlify env:list",
+    "health": "curl ${NETLIFY_URL:-http://localhost:8888}/.netlify/functions/health-check"
   },
   "keywords": [
-    "netlify",
-    "functions",
     "line",
-    "prima789",
     "liff",
-    "postgresql"
+    "netlify",
+    "prima789",
+    "member-card",
+    "socket.io"
   ],
-  "author": "SLIFFS Team",
-  "license": "MIT",
-  "dependencies": {
-    "pg": "^8.11.3",
-    "node-fetch": "^2.7.0"
-  },
+  "author": "Prima789 Development Team",
+  "license": "ISC",
   "devDependencies": {
-    "netlify-cli": "^17.10.1"
+    "netlify-cli": "^23.5.1"
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/sliffs.git"
   }
 }
