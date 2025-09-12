@@ -573,6 +573,77 @@
     </div>
 
     <script>
+        // API Configuration for Real Integration
+        const API_CONFIG = {
+            BASE_URL: window.location.origin,
+            ENDPOINTS: {
+                CHECK_LINKING: '/.netlify/functions/check-account-linking',
+                SEARCH_ACCOUNT: '/.netlify/functions/search-prima789-account',
+                LINK_ACCOUNT: '/.netlify/functions/link-account',
+                REGISTER_SOCKET_SYNC: '/.netlify/functions/register-socket-sync',
+                CHECK_SYNC_STATUS: '/.netlify/functions/check-sync-status'
+            },
+            TIMEOUT: 30000,
+            RETRY_ATTEMPTS: 3
+        };
+
+        // Real API Call Function
+        async function makeApiCall(endpoint, options = {}) {
+            const url = `${API_CONFIG.BASE_URL}${endpoint}`;
+            const defaultOptions = {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'LIFF'
+                },
+                timeout: API_CONFIG.TIMEOUT
+            };
+
+            const finalOptions = { ...defaultOptions, ...options };
+
+            console.log(`🌐 API Call: ${url}`, finalOptions);
+
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), finalOptions.timeout);
+
+                const response = await fetch(url, {
+                    ...finalOptions,
+                    signal: controller.signal
+                });
+
+                clearTimeout(timeoutId);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+
+                const result = await response.json();
+                console.log(`✅ API Response: ${url}`, result);
+
+                return result;
+
+            } catch (error) {
+                console.error(`❌ API Error: ${url}`, error);
+                throw error;
+            }
+        }
+
+        // API Helper Function with Retry Logic
+        async function makeApiCallWithRetry(endpoint, options = {}, retries = API_CONFIG.RETRY_ATTEMPTS) {
+            for (let i = 0; i < retries; i++) {
+                try {
+                    return await makeApiCall(endpoint, options);
+                } catch (error) {
+                    if (i === retries - 1) throw error;
+
+                    console.warn(`🔄 Retrying API call (${i + 1}/${retries}): ${endpoint}`);
+                    await delay(1000 * (i + 1)); // Exponential backoff
+                }
+            }
+        }
+
         let userProfile = null;
         let selectedSyncMethod = null;
         let foundAccount = null;
@@ -580,7 +651,7 @@
         let isLIFFAvailable = false;
         let isMockMode = false;
 
-        // Mock data สำหรับการทดสอบ
+        // Mock data สำหรับการทดสอบเท่านั้น
         const mockUserProfile = {
             userId: 'U' + Math.random().toString(36).substr(2, 32),
             displayName: 'สมชาย ดีใจ',
@@ -588,29 +659,6 @@
             statusMessage: 'Hello LINE!',
             language: 'th'
         };
-
-        const mockAccounts = [
-            {
-                username: 'user123456',
-                displayName: 'สมชาย ดีใจ',
-                balance: 25680,
-                tier: 'Gold',
-                phone: '081-234-5678',
-                email: 'user@example.com',
-                registrationDate: '2023-01-15',
-                lastLogin: '2024-12-18 14:30:00'
-            },
-            {
-                username: 'vipgamer99',
-                displayName: 'สมชาย VIP',
-                balance: 155000,
-                tier: 'Diamond',
-                phone: '089-876-5432',
-                email: 'vip@example.com',
-                registrationDate: '2022-05-20',
-                lastLogin: '2024-12-18 15:45:00'
-            }
-        ];
 
         // Initialize application
         document.addEventListener('DOMContentLoaded', async () => {
@@ -745,22 +793,21 @@
                     return;
                 }
 
-                const response = await mockApiCall('/api/check-account-linking', {
-                    method: 'GET',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    }
+                const result = await makeApiCallWithRetry(API_CONFIG.ENDPOINTS.CHECK_LINKING, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        lineUserId: userProfile.userId
+                    })
                 });
 
-                const result = await response.json();
-
-                if (result.success && result.isLinked) {
+                if (result.success && result.data && result.data.isLinked) {
                     showStep(4);
                     setProgress(100);
                 }
 
             } catch (error) {
                 console.error('Error checking existing link:', error);
+                // ไม่แสดง error สำหรับ background check
             }
         }
 
@@ -769,30 +816,28 @@
             setProgress(50);
 
             try {
-                await delay(1500); // Simulate API delay
-
-                const response = await mockApiCall('/api/search-prima789-account', {
+                const result = await makeApiCallWithRetry(API_CONFIG.ENDPOINTS.SEARCH_ACCOUNT, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
                     body: JSON.stringify({
                         lineUserId: userProfile.userId,
                         displayName: userProfile.displayName,
-                        pictureUrl: userProfile.pictureUrl
+                        pictureUrl: userProfile.pictureUrl,
+                        searchType: 'auto'
                     })
                 });
 
-                const result = await response.json();
-
-                if (result.success && result.accountFound) {
-                    foundAccount = result.account;
-                    displayFoundAccount();
-                    showStep(3);
-                    setProgress(75);
+                if (result.success && result.data) {
+                    if (result.data.accountFound) {
+                        foundAccount = result.data.account;
+                        displayFoundAccount();
+                        showStep(3);
+                        setProgress(75);
+                    } else {
+                        showStep(2);
+                        setProgress(50);
+                    }
                 } else {
-                    showStep(2);
-                    setProgress(50);
+                    throw new Error(result.error || 'ไม่สามารถค้นหาบัญชีได้');
                 }
 
             } catch (error) {
@@ -858,7 +903,7 @@
                     requestData.username = username;
                 }
 
-                const result = await makeApiCall(API_CONFIG.ENDPOINTS.SEARCH_ACCOUNT, {
+                const result = await makeApiCallWithRetry(API_CONFIG.ENDPOINTS.SEARCH_ACCOUNT, {
                     method: 'POST',
                     body: JSON.stringify(requestData)
                 });
@@ -901,11 +946,11 @@
                 </div>
                 <div class="detail-item">
                     <div class="detail-label">ชื่อ-สกุล</div>
-                    <div class="detail-value">${foundAccount.displayName}</div>
+                    <div class="detail-value">${foundAccount.first_name} ${foundAccount.last_name}</div>
                 </div>
                 <div class="detail-item">
                     <div class="detail-label">ยอดเงิน</div>
-                    <div class="detail-value" style="color: #06C755;">฿${foundAccount.balance.toLocaleString()}</div>
+                    <div class="detail-value" style="color: #06C755;">฿${parseFloat(foundAccount.available || 0).toLocaleString()}</div>
                 </div>
                 <div class="detail-item">
                     <div class="detail-label">ระดับสมาชิก</div>
@@ -926,23 +971,16 @@
 
         async function startSocketSync() {
             try {
-                await delay(1000);
-
-                const response = await mockApiCall('/api/register-socket-sync', {
+                const result = await makeApiCallWithRetry(API_CONFIG.ENDPOINTS.REGISTER_SOCKET_SYNC, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
                     body: JSON.stringify({
                         lineUserId: userProfile.userId,
                         userProfile: userProfile
                     })
                 });
 
-                const result = await response.json();
-
-                if (result.success) {
-                    pollSyncStatus(result.syncId);
+                if (result.success && result.data) {
+                    pollSyncStatus(result.data.syncId);
                 } else {
                     showError('เกิดข้อผิดพลาดในการเตรียมระบบ Socket Sync');
                 }
@@ -961,33 +999,38 @@
                 try {
                     pollCount++;
 
-                    const response = await mockApiCall(`/api/check-sync-status?syncId=${syncId}`);
-                    const result = await response.json();
+                    const result = await makeApiCall(`${API_CONFIG.ENDPOINTS.CHECK_SYNC_STATUS}?syncId=${syncId}`);
 
-                    if (result.success && result.completed) {
-                        clearInterval(pollInterval);
+                    if (result.success && result.data) {
+                        if (result.data.completed) {
+                            clearInterval(pollInterval);
 
-                        if (result.accountLinked) {
-                            foundAccount = result.account;
-                            showStep(4);
-                            setProgress(100);
+                            if (result.data.accountLinked) {
+                                foundAccount = result.data.account;
+                                showStep(4);
+                                setProgress(100);
 
-                            if (isLIFFAvailable && liff.isInClient()) {
-                                liff.sendMessages([{
-                                    type: 'text',
-                                    text: '✅ เชื่อมโยงบัญชี Prima789 สำเร็จแล้ว!\nตอนนี้คุณสามารถใช้ Member Card ผ่าน LINE ได้เลย'
-                                }]);
+                                if (isLIFFAvailable && liff.isInClient()) {
+                                    liff.sendMessages([{
+                                        type: 'text',
+                                        text: '✅ เชื่อมโยงบัญชี Prima789 สำเร็จแล้ว!\nตอนนี้คุณสามารถใช้ Member Card ผ่าน LINE ได้เลย'
+                                    }]);
+                                }
+                            } else {
+                                showError('ไม่สามารถเชื่อมโยงบัญชีได้ กรุณาลองใหม่อีกครั้ง');
                             }
-                        } else {
-                            showError('ไม่สามารถเชื่อมโยงบัญชีได้ กรุณาลองใหม่อีกครั้ง');
+                        } else if (pollCount >= maxPolls) {
+                            clearInterval(pollInterval);
+                            showError('หมดเวลารอการเชื่อมโยง กรุณาลองใหม่อีกครั้ง');
                         }
-                    } else if (pollCount >= maxPolls) {
-                        clearInterval(pollInterval);
-                        showError('หมดเวลารอการเชื่อมโยง กรุณาลองใหม่อีกครั้ง');
                     }
 
                 } catch (error) {
                     console.error('Error polling sync status:', error);
+                    if (pollCount >= maxPolls) {
+                        clearInterval(pollInterval);
+                        showError('เกิดข้อผิดพลาดในการตรวจสอบสถานะ');
+                    }
                 }
             }, 3000);
         }
@@ -1006,7 +1049,6 @@
         }
 
         async function confirmLinking() {
-
             if (!foundAccount) {
                 showError('ไม่พบข้อมูลบัญชี กรุณาลองใหม่อีกครั้ง');
                 return;
@@ -1015,18 +1057,16 @@
             showLoading('confirm', true);
 
             try {
-                const result = await makeApiCall(API_CONFIG.ENDPOINTS.LINK_ACCOUNT, {
+                const result = await makeApiCallWithRetry(API_CONFIG.ENDPOINTS.LINK_ACCOUNT, {
                     method: 'POST',
                     body: JSON.stringify({
                         lineUserId: userProfile.userId,
-                        prima789Account: {
-                            username: foundAccount.username,
-                            displayName: foundAccount.displayName
-                        },
+                        prima789Username: foundAccount.username,
                         userProfile: {
                             displayName: userProfile.displayName,
                             pictureUrl: userProfile.pictureUrl
-                        }
+                        },
+                        linkMethod: selectedSyncMethod
                     })
                 });
 
@@ -1058,85 +1098,6 @@
             }
 
             showLoading('confirm', false);
-        }
-
-        // Mock API function
-        async function mockApiCall(endpoint, options = {}) {
-            console.log(`Mock API Call: ${endpoint}`, options);
-
-            // Simulate network delay
-            await delay(500 + Math.random() * 1000);
-
-            // Mock responses based on endpoint
-            let mockResponse;
-
-            switch (endpoint) {
-                case '/api/search-prima789-account':
-                    mockResponse = {
-                        success: Math.random() > 0.3, // 70% success rate
-                        accountFound: Math.random() > 0.5,
-                        account: mockAccounts[Math.floor(Math.random() * mockAccounts.length)]
-                    };
-                    break;
-
-                case '/api/process-account-sync':
-                    const data = JSON.parse(options.body || '{}');
-                    if (data.syncMethod === 'manual') {
-                        // For manual, try to find account with matching username
-                        const account = mockAccounts.find(acc =>
-                            acc.username.toLowerCase().includes(data.username.toLowerCase())
-                        );
-                        mockResponse = {
-                            success: !!account,
-                            accountFound: !!account,
-                            account: account,
-                            message: account ? 'พบบัญชี!' : 'ไม่พบ username ที่ระบุ'
-                        };
-                    } else if (data.syncMethod === 'socket') {
-                        mockResponse = {
-                            success: true,
-                            accountFound: false,
-                            socketReady: true
-                        };
-                    } else {
-                        mockResponse = {
-                            success: true,
-                            accountFound: Math.random() > 0.4,
-                            account: mockAccounts[0]
-                        };
-                    }
-                    break;
-
-                case '/api/register-socket-sync':
-                    mockResponse = {
-                        success: true,
-                        syncId: 'sync_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
-                    };
-                    break;
-
-                default:
-                    if (endpoint.includes('/api/check-sync-status')) {
-                        // Random completion after some time
-                        const completed = Math.random() > 0.7;
-                        mockResponse = {
-                            success: true,
-                            completed: completed,
-                            accountLinked: completed,
-                            account: completed ? mockAccounts[1] : null
-                        };
-                    } else {
-                        mockResponse = {
-                            success: true,
-                            isLinked: false
-                        };
-                    }
-            }
-
-            console.log(`Mock Response: ${endpoint}`, mockResponse);
-
-            return {
-                json: async () => mockResponse
-            };
         }
 
         function delay(ms) {

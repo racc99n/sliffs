@@ -561,62 +561,89 @@
     </div>
 
     <script>
+        // API Configuration for Real Integration
+        const API_CONFIG = {
+            BASE_URL: window.location.origin,
+            ENDPOINTS: {
+                CHECK_LINKING: '/.netlify/functions/check-account-linking',
+                BALANCE_INQUIRY: '/.netlify/functions/balance-inquiry',
+                GET_TRANSACTIONS: '/.netlify/functions/get-transactions',
+                UPDATE_MEMBER_DATA: '/.netlify/functions/update-member-data'
+            },
+            TIMEOUT: 30000,
+            RETRY_ATTEMPTS: 3
+        };
+
+        // Real API Call Function
+        async function makeApiCall(endpoint, options = {}) {
+            const url = `${API_CONFIG.BASE_URL}${endpoint}`;
+            const defaultOptions = {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'LIFF'
+                },
+                timeout: API_CONFIG.TIMEOUT
+            };
+
+            const finalOptions = { ...defaultOptions, ...options };
+
+            console.log(`🌐 API Call: ${url}`, finalOptions);
+
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), finalOptions.timeout);
+
+                const response = await fetch(url, {
+                    ...finalOptions,
+                    signal: controller.signal
+                });
+
+                clearTimeout(timeoutId);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+
+                const result = await response.json();
+                console.log(`✅ API Response: ${url}`, result);
+
+                return result;
+
+            } catch (error) {
+                console.error(`❌ API Error: ${url}`, error);
+                throw error;
+            }
+        }
+
+        // API Helper Function with Retry Logic
+        async function makeApiCallWithRetry(endpoint, options = {}, retries = API_CONFIG.RETRY_ATTEMPTS) {
+            for (let i = 0; i < retries; i++) {
+                try {
+                    return await makeApiCall(endpoint, options);
+                } catch (error) {
+                    if (i === retries - 1) throw error;
+
+                    console.warn(`🔄 Retrying API call (${i + 1}/${retries}): ${endpoint}`);
+                    await delay(1000 * (i + 1)); // Exponential backoff
+                }
+            }
+        }
+
         let userProfile = null;
         let memberData = null;
         let refreshInterval = null;
         let isLIFFAvailable = false;
         let isMockMode = false;
 
-        // Mock data for testing
+        // Mock data สำหรับการทดสอบ fallback
         const mockUserProfile = {
             userId: 'U' + Math.random().toString(36).substr(2, 32),
             displayName: 'สมชาย ทดสอบ',
             pictureUrl: generateDefaultAvatar(),
             statusMessage: 'Hello LINE!',
             language: 'th'
-        };
-
-        const mockMemberData = {
-            username: 'testuser123',
-            display_name: 'สมชาย ทดสอบ',
-            balance: 45680.50,
-            tier: 'Gold',
-            points: 8750,
-            total_transactions: 156,
-            member_since: '2023-01-15',
-            last_login: new Date().toISOString(),
-            recent_transactions: [
-                {
-                    transaction_type: 'deposit',
-                    amount: 5000,
-                    timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-                    description: 'ฝากเงินผ่านธนาคาร'
-                },
-                {
-                    transaction_type: 'bet',
-                    amount: -500,
-                    timestamp: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
-                    description: 'วางเดิมพันบาคาร่า'
-                },
-                {
-                    transaction_type: 'win',
-                    amount: 1200,
-                    timestamp: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
-                    description: 'ชนะเดิมพันบาคาร่า'
-                },
-                {
-                    transaction_type: 'bonus',
-                    amount: 250,
-                    timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-                    description: 'โบนัสสมาชิกประจำวัน'
-                },
-                {
-                    transaction_type: 'withdraw',
-                    amount: -2000,
-                    timestamp: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-                    description: 'ถอนเงินเข้าบัญชี xxx-x-x1234-x'
-                }
-            ]
         };
 
         // Initialize app
@@ -686,20 +713,30 @@
         function initializeMockMode() {
             isMockMode = true;
             userProfile = mockUserProfile;
-            memberData = mockMemberData;
 
             showDebug('Mock Mode', {
                 message: 'Running in mock mode for testing',
-                profile: userProfile,
-                memberData: memberData
+                profile: userProfile
             });
 
-            // Simulate loading delay
+            // Simulate loading delay and random linked status
             setTimeout(() => {
-                // Simulate 80% chance of being linked
-                const isLinked = Math.random() > 0.2;
+                const isLinked = Math.random() > 0.2; // 80% chance linked
 
                 if (isLinked) {
+                    // Mock member data
+                    memberData = {
+                        username: 'testuser123',
+                        first_name: 'สมชาย',
+                        last_name: 'ทดสอบ',
+                        available: 45680.50,
+                        tier: 'Gold',
+                        points: 8750,
+                        total_transactions: 156,
+                        last_login: new Date().toISOString(),
+                        recent_transactions: generateMockTransactions()
+                    };
+
                     displayMemberCard();
                     startAutoRefresh();
                 } else {
@@ -711,7 +748,6 @@
         }
 
         function generateDefaultAvatar() {
-            // Generate a simple SVG avatar
             return `data:image/svg+xml;base64,${btoa(`
                 <svg width="60" height="60" viewBox="0 0 60 60" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <circle cx="30" cy="30" r="30" fill="#06C755"/>
@@ -719,6 +755,31 @@
                     <path d="M15 45c0-8 7-12 15-12s15 4 15 12" fill="white"/>
                 </svg>
             `)}`;
+        }
+
+        function generateMockTransactions() {
+            const types = ['deposit', 'withdraw', 'bet', 'win', 'bonus'];
+            const descriptions = {
+                deposit: 'ฝากเงินผ่านธนาคาร',
+                withdraw: 'ถอนเงินเข้าบัญชี',
+                bet: 'วางเดิมพันบาคาร่า',
+                win: 'ชนะเดิมพัน',
+                bonus: 'โบนัสประจำวัน'
+            };
+
+            return Array.from({ length: 5 }, (_, i) => {
+                const type = types[Math.floor(Math.random() * types.length)];
+                const amount = type === 'withdraw' || type === 'bet' ?
+                    -(Math.random() * 5000 + 500) :
+                    (Math.random() * 3000 + 100);
+
+                return {
+                    transaction_type: type,
+                    amount: Math.round(amount * 100) / 100,
+                    timestamp: new Date(Date.now() - i * 4 * 60 * 60 * 1000).toISOString(),
+                    description: descriptions[type]
+                };
+            });
         }
 
         function showDebug(title, data) {
@@ -746,8 +807,8 @@
                     throw new Error('ไม่พบข้อมูล LINE User');
                 }
 
-                // เรียก API จริงแทน mock
-                const result = await makeApiCall(
+                // เรียก API เพื่อตรวจสอบการเชื่อมโยง
+                const result = await makeApiCallWithRetry(
                     `${API_CONFIG.ENDPOINTS.CHECK_LINKING}?lineUserId=${userProfile.userId}`
                 );
 
@@ -755,7 +816,7 @@
                     throw new Error(result.error || 'ไม่สามารถตรวจสอบการเชื่อมโยงได้');
                 }
 
-                if (result.data.isLinked) {
+                if (result.data && result.data.isLinked) {
                     memberData = result.data.memberData;
                     displayMemberCard();
                     await requestBalanceUpdate();
@@ -776,7 +837,7 @@
             try {
                 if (!userProfile?.userId) return;
 
-                const result = await makeApiCall(API_CONFIG.ENDPOINTS.BALANCE_INQUIRY, {
+                const result = await makeApiCallWithRetry(API_CONFIG.ENDPOINTS.BALANCE_INQUIRY, {
                     method: 'POST',
                     body: JSON.stringify({
                         lineUserId: userProfile.userId,
@@ -789,7 +850,6 @@
                     memberData = { ...memberData, ...result.data };
                     displayMemberCard();
 
-                    // แสดงข้อมูลล่าสุด
                     console.log('Balance updated:', result.data);
                 }
 
@@ -805,7 +865,11 @@
             document.getElementById('notLinkedState').style.display = 'none';
 
             // Update user info
-            document.getElementById('userName').textContent = memberData.display_name || memberData.username;
+            const displayName = memberData.first_name && memberData.last_name ?
+                `${memberData.first_name} ${memberData.last_name}` :
+                (memberData.display_name || memberData.username);
+
+            document.getElementById('userName').textContent = displayName;
             document.getElementById('userID').textContent = `ID: ${memberData.username}`;
 
             // Set user avatar
@@ -814,7 +878,7 @@
             avatar.onerror = () => avatar.src = generateDefaultAvatar();
 
             // Update balance
-            const balance = parseFloat(memberData.balance) || 0;
+            const balance = parseFloat(memberData.available || memberData.balance || 0);
             document.getElementById('balanceAmount').textContent = `฿${balance.toLocaleString()}`;
 
             // Update tier
@@ -824,7 +888,7 @@
             tierElement.className = `card-tier ${tier.toLowerCase()}`;
 
             // Update points
-            const points = parseInt(memberData.points) || 0;
+            const points = parseInt(memberData.points || 0);
             document.getElementById('pointsValue').textContent = points.toLocaleString();
 
             // Update transaction count
@@ -875,7 +939,7 @@
                 const amount = parseFloat(tx.amount) || 0;
                 const isPositive = amount >= 0;
                 const icon = getTransactionIcon(tx.transaction_type);
-                const date = new Date(tx.timestamp || tx.created_at).toLocaleDateString('th-TH', {
+                const date = new Date(tx.timestamp || tx.created_at || tx.processed_at).toLocaleDateString('th-TH', {
                     day: '2-digit',
                     month: '2-digit',
                     hour: '2-digit',
@@ -890,7 +954,7 @@
                             </div>
                             <div class="transaction-details">
                                 <h4>${getTransactionTitle(tx.transaction_type)}</h4>
-                                <p>${date}</p>
+                                <p>${tx.description || date}</p>
                             </div>
                         </div>
                         <div class="transaction-amount ${isPositive ? 'amount-positive' : 'amount-negative'}">
@@ -970,7 +1034,7 @@
             }
 
             refreshInterval = setInterval(async () => {
-                if (memberData) {
+                if (memberData && !isMockMode) {
                     await requestBalanceUpdate();
                 }
             }, 30000); // Refresh every 30 seconds
@@ -1002,42 +1066,6 @@
             }
         }
 
-        // Mock API function
-        async function mockApiCall(endpoint, options = {}) {
-            console.log(`Mock API Call: ${endpoint}`, options);
-
-            await delay(500 + Math.random() * 1000);
-
-            let mockResponse;
-
-            if (endpoint.includes('check-account-linking')) {
-                mockResponse = {
-                    success: true,
-                    isLinked: Math.random() > 0.2, // 80% linked
-                    data: mockMemberData
-                };
-            } else if (endpoint.includes('balance-inquiry')) {
-                // Update balance slightly
-                mockMemberData.balance += (Math.random() - 0.5) * 50;
-                mockResponse = {
-                    success: true,
-                    data: {
-                        balance: mockMemberData.balance,
-                        points: mockMemberData.points + Math.floor(Math.random() * 5)
-                    }
-                };
-            } else {
-                mockResponse = {
-                    success: true,
-                    data: null
-                };
-            }
-
-            return {
-                json: async () => mockResponse
-            };
-        }
-
         function delay(ms) {
             return new Promise(resolve => setTimeout(resolve, ms));
         }
@@ -1051,7 +1079,7 @@
 
         // Handle page visibility change
         document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible' && memberData) {
+            if (document.visibilityState === 'visible' && memberData && !isMockMode) {
                 requestBalanceUpdate();
             }
         });
