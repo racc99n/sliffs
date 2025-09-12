@@ -4,6 +4,7 @@
   "description": "Prima789 LINE Member Card System with LIFF and Netlify Functions",
   "main": "index.js",
   "dependencies": {
+    "@line/liff": "^2.27.2",
     "canvas": "^3.2.0",
     "node-fetch": "^3.3.2",
     "pg": "^8.11.3",
@@ -24,7 +25,7 @@
   "scripts": {
     "build": "echo 'Static files ready in public directory'",
     "dev": "netlify dev --node-version=20",
-    "start": "netlify dev --node-version=20", 
+    "start": "netlify dev --node-version=20",
     "deploy": "netlify deploy --prod",
     "deploy:dev": "netlify deploy",
     "test": "echo \"Tests not implemented yet\" && exit 0",
