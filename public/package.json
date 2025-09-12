@@ -1,9 +1,12 @@
 {
   "name": "sliffs",
-  "version": "1.0.0",
-  "description": "This is a web application that allows you to try out the basic features of the [LINE Front-end Framework (LIFF)](https://developers.line.biz/en/docs/liff/overview/). For example, you can deploy the following playground to your server.",
+  "version": "2.0.0",
+  "description": "Prima789 LINE Member Card System - PRODUCTION READY with Real Database Integration",
   "main": "index.js",
   "dependencies": {
+    "@line/liff": "^2.27.2",
+    "canvas": "^3.2.0",
+    "dotenv": "^16.3.1",
     "node-fetch": "^3.3.2",
     "pg": "^8.11.3",
     "pg-cloudflare": "^1.2.7",
@@ -21,12 +24,72 @@
     "xtend": "^4.0.2"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "echo 'Static files ready in public directory'",
+    "dev": "netlify dev --node-version=20",
+    "start": "netlify dev --node-version=20",
+    "deploy": "npm run test:quick && netlify deploy --prod",
+    "deploy:dev": "netlify deploy",
+    "deploy:force": "netlify deploy --prod",
+    
+    "db:init": "node scripts/init-database.js init",
+    "db:verify": "node scripts/init-database.js verify", 
+    "db:sample": "node scripts/init-database.js sample",
+    "db:test": "node scripts/init-database.js test",
+    
+    "test": "node scripts/test-apis.js",
+    "test:verbose": "node scripts/test-apis.js --verbose",
+    "test:quick": "node scripts/test-apis.js",
+    "test:health": "curl -f ${NETLIFY_URL:-http://localhost:8888}/.netlify/functions/health-check || exit 1",
+    
+    "setup": "npm run setup:env && npm run db:init && npm run setup:richmenu",
+    "setup:env": "chmod +x prima789-env-setup.sh && ./prima789-env-setup.sh",
+    "setup:richmenu": "node rich-menu-setup-with-image.js",
+    "setup:complete": "chmod +x deploy.sh && ./deploy.sh",
+    
+    "check-env": "netlify env:list",
+    "check-health": "curl -s ${NETLIFY_URL:-http://localhost:8888}/.netlify/functions/health-check | jq '.'",
+    "check-db": "node scripts/init-database.js verify",
+    
+    "logs": "netlify logs:functions",
+    "status": "netlify status",
+    "open": "netlify open",
+    
+    "clean": "rm -rf node_modules package-lock.json .netlify",
+    "reset": "npm run clean && npm install",
+    
+    "production:health": "curl -f https://sliffs.netlify.app/.netlify/functions/health-check",
+    "production:test": "NETLIFY_URL=https://sliffs.netlify.app node scripts/test-apis.js",
+    
+    "postinstall": "echo '✅ Dependencies installed - System ready for deployment' && echo '📖 Run: npm run setup (first time) or npm run deploy (update)'",
+    
+    "help": "echo 'Prima789 LINE Member Card System v2.0 - Commands:' && echo '  npm run setup     - First time setup (DB + ENV + Rich Menu)' && echo '  npm run deploy    - Deploy to production' && echo '  npm run test      - Test all APIs' && echo '  npm run db:init   - Initialize database' && echo '  npm run check-health - Check system health' && echo '  npm run production:test - Test production APIs'"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "line",
+    "liff",
+    "netlify",
+    "prima789",
+    "member-card",
+    "postgresql",
+    "neon-database",
+    "production-ready"
+  ],
+  "author": "Prima789 Development Team",
   "license": "ISC",
   "devDependencies": {
     "netlify-cli": "^23.5.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/sliffs.git"
+  },
+  "config": {
+    "production_url": "https://sliffs.netlify.app",
+    "database_provider": "neon-postgresql",
+    "line_platform": "messaging-api",
+    "deployment_target": "netlify-functions"
   }
 }
