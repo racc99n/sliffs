@@ -1,4 +1,6 @@
 // ===== netlify/functions/utils/database.js =====
+// Shared database utility functions
+
 const { Pool } = require('pg')
 
 // Single database connection pool instance
@@ -7,8 +9,9 @@ let pool = null
 // Initialize database connection
 const initializeDatabase = () => {
   if (!pool) {
+    // แก้ไข: ใช้ process.env.DATABASE_URL ให้ตรงกับไฟล์ .env
     pool = new Pool({
-      connectionString: process.env.NETLIFY_DATABASE_URL,
+      connectionString: process.env.DATABASE_URL,
       ssl:
         process.env.NODE_ENV === 'production'
           ? { rejectUnauthorized: false }
@@ -19,6 +22,7 @@ const initializeDatabase = () => {
       acquireTimeoutMillis: 10000,
     })
 
+    // Handle pool errors
     pool.on('error', (err) => {
       console.error('❌ Database pool error:', err)
     })
@@ -28,8 +32,12 @@ const initializeDatabase = () => {
   return pool
 }
 
-const getDatabase = () => initializeDatabase()
+// Get database connection
+const getDatabase = () => {
+  return initializeDatabase()
+}
 
+// Execute query with error handling
 const executeQuery = async (query, params = []) => {
   const db = getDatabase()
 
@@ -44,6 +52,7 @@ const executeQuery = async (query, params = []) => {
   }
 }
 
+// Upsert LINE user
 const upsertLineUser = async (lineUserId, profile = {}) => {
   const query = `
         INSERT INTO line_users (
@@ -71,6 +80,7 @@ const upsertLineUser = async (lineUserId, profile = {}) => {
   return result.rows[0]
 }
 
+// Check account linking status
 const checkUserLinking = async (lineUserId) => {
   const query = `
         SELECT 
@@ -98,6 +108,114 @@ const checkUserLinking = async (lineUserId) => {
   }
 }
 
+// Upsert Prima789 account
+const upsertPrima789Account = async (accountData) => {
+  const query = `
+        INSERT INTO prima789_accounts (
+            username, email, phone, balance, status, last_login, 
+            account_type, referral_code, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+        ON CONFLICT (username) 
+        DO UPDATE SET 
+            email = EXCLUDED.email,
+            phone = EXCLUDED.phone,
+            balance = EXCLUDED.balance,
+            status = EXCLUDED.status,
+            last_login = EXCLUDED.last_login,
+            account_type = EXCLUDED.account_type,
+            updated_at = NOW()
+        RETURNING *`
+
+  const values = [
+    accountData.username,
+    accountData.email || null,
+    accountData.phone || null,
+    accountData.balance || 0,
+    accountData.status || 'active',
+    accountData.lastLogin ? new Date(accountData.lastLogin) : null,
+    accountData.accountType || 'regular',
+    accountData.referralCode || null,
+  ]
+
+  const result = await executeQuery(query, values)
+  console.log('✅ Prima789 account upserted:', accountData.username)
+  return result.rows[0]
+}
+
+// Create account linking
+const createAccountLink = async (
+  lineUserId,
+  prima789AccountId,
+  verificationData = {}
+) => {
+  const query = `
+        INSERT INTO account_linking (
+            line_user_id, prima789_account_id, verification_code,
+            verification_method, is_active, linked_at, metadata
+        ) VALUES ($1, $2, $3, $4, true, NOW(), $5)
+        RETURNING *`
+
+  const values = [
+    lineUserId,
+    prima789AccountId,
+    verificationData.code || null,
+    verificationData.method || 'manual',
+    JSON.stringify(verificationData.metadata || {}),
+  ]
+
+  const result = await executeQuery(query, values)
+  console.log('✅ Account link created:', result.rows[0].linking_id)
+  return result.rows[0]
+}
+
+// Create transaction
+const createTransaction = async (transactionData) => {
+  const query = `
+        INSERT INTO transactions (
+            prima789_account_id, line_user_id, transaction_type, amount,
+            balance_before, balance_after, currency, reference_id,
+            game_type, game_id, status, description, metadata, processed_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        RETURNING *`
+
+  const values = [
+    transactionData.accountId,
+    transactionData.lineUserId || null,
+    transactionData.type,
+    transactionData.amount,
+    transactionData.balanceBefore || 0,
+    transactionData.balanceAfter || 0,
+    transactionData.currency || 'THB',
+    transactionData.referenceId || null,
+    transactionData.gameType || null,
+    transactionData.gameId || null,
+    transactionData.status || 'completed',
+    transactionData.description || null,
+    JSON.stringify(transactionData.metadata || {}),
+    transactionData.processedAt
+      ? new Date(transactionData.processedAt)
+      : new Date(),
+  ]
+
+  const result = await executeQuery(query, values)
+  console.log('✅ Transaction created:', result.rows[0].transaction_id)
+  return result.rows[0]
+}
+
+// Update account balance
+const updateAccountBalance = async (accountId, newBalance) => {
+  const query = `
+        UPDATE prima789_accounts 
+        SET balance = $2, updated_at = NOW() 
+        WHERE account_id = $1
+        RETURNING *`
+
+  const result = await executeQuery(query, [accountId, newBalance])
+  console.log('✅ Account balance updated:', accountId, newBalance)
+  return result.rows[0]
+}
+
+// Get user balance
 const getUserBalance = async (lineUserId) => {
   const query = `
         SELECT pa.balance
@@ -113,6 +231,7 @@ const getUserBalance = async (lineUserId) => {
   return parseFloat(balance) || 0
 }
 
+// Get recent transactions
 const getRecentTransactions = async (lineUserId, limit = 10) => {
   const query = `
         SELECT t.*, pa.username
@@ -130,6 +249,7 @@ const getRecentTransactions = async (lineUserId, limit = 10) => {
   return result.rows
 }
 
+// Log system event
 const logSystemEvent = async (
   eventType,
   lineUserId = null,
@@ -160,6 +280,7 @@ const logSystemEvent = async (
   }
 }
 
+// Health check
 const checkDatabaseHealth = async () => {
   try {
     const result = await executeQuery(
@@ -179,13 +300,38 @@ const checkDatabaseHealth = async () => {
   }
 }
 
+// Close database connection (for cleanup)
+const closeDatabaseConnection = async () => {
+  if (pool) {
+    await pool.end()
+    pool = null
+    console.log('✅ Database pool closed')
+  }
+}
+
 module.exports = {
+  // Core functions
   getDatabase,
   executeQuery,
+
+  // User management
   upsertLineUser,
   checkUserLinking,
+
+  // Prima789 management
+  upsertPrima789Account,
+  updateAccountBalance,
   getUserBalance,
+
+  // Account linking
+  createAccountLink,
+
+  // Transactions
+  createTransaction,
   getRecentTransactions,
+
+  // System
   logSystemEvent,
   checkDatabaseHealth,
+  closeDatabaseConnection,
 }
