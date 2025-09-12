@@ -256,6 +256,16 @@
             color: #ffdd44;
         }
         
+        .transaction-icon.win {
+            background: rgba(0, 255, 136, 0.2);
+            color: #00ff88;
+        }
+        
+        .transaction-icon.bonus {
+            background: rgba(138, 43, 226, 0.2);
+            color: #8a2be2;
+        }
+        
         .transaction-details h4 {
             font-size: 14px;
             margin-bottom: 2px;
@@ -351,6 +361,16 @@
             text-align: center;
         }
         
+        .warning-message {
+            background: rgba(255, 193, 7, 0.2);
+            border: 1px solid #ffc107;
+            color: #ffc107;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
         .not-linked {
             text-align: center;
             padding: 40px 20px;
@@ -374,6 +394,28 @@
             font-size: 12px;
             color: #666;
             margin-top: 20px;
+        }
+
+        .debug-info {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+            font-size: 12px;
+        }
+
+        .debug-info h4 {
+            margin-bottom: 10px;
+            color: #ffc107;
+        }
+
+        .debug-info pre {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+            white-space: pre-wrap;
         }
         
         @media (max-width: 480px) {
@@ -406,11 +448,21 @@
             <div class="spinner"></div>
             <p>กำลังโหลดข้อมูล Member Card...</p>
         </div>
-        
+
         <!-- Error State -->
         <div class="error-message" id="errorMessage" style="display: none;">
         </div>
-        
+
+        <!-- Warning State -->
+        <div class="warning-message" id="warningMessage" style="display: none;">
+        </div>
+
+        <!-- Debug Info -->
+        <div class="debug-info" id="debugInfo" style="display: none;">
+            <h4>Debug Information:</h4>
+            <div id="debugContent"></div>
+        </div>
+
         <!-- Not Linked State -->
         <div class="not-linked" id="notLinkedState" style="display: none;">
             <div class="not-linked-icon">⚠️</div>
@@ -422,7 +474,7 @@
                 🔗 เชื่อมโยงบัญชี
             </button>
         </div>
-        
+
         <!-- Member Card Content -->
         <div id="memberCardContent" style="display: none;">
             <div class="member-card">
@@ -490,176 +542,213 @@
     </div>
 
     <script>
-        let liff;
         let userProfile = null;
         let memberData = null;
         let refreshInterval = null;
-        
-        // LIFF Configuration
-        const LIFF_CONFIG = {
-            MEMBER_CARD_ID: '2008090006-ZV6r9v5J', // Replace with your actual LIFF ID
-            MAX_RETRY_ATTEMPTS: 3,
-            RETRY_DELAY: 2000
+        let isLIFFAvailable = false;
+        let isMockMode = false;
+
+        // Mock data for testing
+        const mockUserProfile = {
+            userId: 'U' + Math.random().toString(36).substr(2, 32),
+            displayName: 'สมชาย ทดสอบ',
+            pictureUrl: generateDefaultAvatar(),
+            statusMessage: 'Hello LINE!',
+            language: 'th'
         };
-        
-        // Wait for LIFF SDK to load
-        function waitForLIFF(retryCount = 0) {
-            return new Promise((resolve, reject) => {
-                if (typeof window.liff !== 'undefined') {
-                    resolve(window.liff);
-                    return;
+
+        const mockMemberData = {
+            username: 'testuser123',
+            display_name: 'สมชาย ทดสอบ',
+            balance: 45680.50,
+            tier: 'Gold',
+            points: 8750,
+            total_transactions: 156,
+            member_since: '2023-01-15',
+            last_login: new Date().toISOString(),
+            recent_transactions: [
+                {
+                    transaction_type: 'deposit',
+                    amount: 5000,
+                    timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+                    description: 'ฝากเงินผ่านธนาคาร'
+                },
+                {
+                    transaction_type: 'bet',
+                    amount: -500,
+                    timestamp: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
+                    description: 'วางเดิมพันบาคาร่า'
+                },
+                {
+                    transaction_type: 'win',
+                    amount: 1200,
+                    timestamp: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
+                    description: 'ชนะเดิมพันบาคาร่า'
+                },
+                {
+                    transaction_type: 'bonus',
+                    amount: 250,
+                    timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+                    description: 'โบนัสสมาชิกประจำวัน'
+                },
+                {
+                    transaction_type: 'withdraw',
+                    amount: -2000,
+                    timestamp: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+                    description: 'ถอนเงินเข้าบัญชี xxx-x-x1234-x'
                 }
-                
-                if (retryCount >= LIFF_CONFIG.MAX_RETRY_ATTEMPTS) {
-                    reject(new Error('LIFF SDK failed to load after multiple attempts'));
-                    return;
+            ]
+        };
+
+        // Initialize app
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                await initializeApp();
+            } catch (error) {
+                console.error('App initialization failed:', error);
+                showError('เกิดข้อผิดพลาดในการเริ่มต้นแอปพลิเคชัน');
+                showLoading(false);
+            }
+        });
+
+        async function initializeApp() {
+            try {
+                // Check if LIFF SDK is available
+                if (typeof liff !== 'undefined') {
+                    await initializeLIFF();
+                } else {
+                    console.warn('LIFF SDK not available, switching to mock mode');
+                    showWarning('LIFF SDK ไม่พร้อมใช้งาน กำลังใช้โหมดทดสอบ');
+                    initializeMockMode();
                 }
-                
-                console.log(`Waiting for LIFF SDK... (attempt ${retryCount + 1})`);
-                setTimeout(() => {
-                    waitForLIFF(retryCount + 1).then(resolve).catch(reject);
-                }, LIFF_CONFIG.RETRY_DELAY);
-            });
+            } catch (error) {
+                console.error('App initialization error:', error);
+                showDebug('App Init Error', error);
+                showWarning('ไม่สามารถเชื่อมต่อ LIFF ได้ กำลังใช้โหมดทดสอบ');
+                initializeMockMode();
+            }
         }
-        
-        // Initialize LIFF with proper error handling
+
         async function initializeLIFF() {
             try {
-                showLoading(true);
-                console.log('Starting LIFF initialization...');
+                const liffId = '2008090006-ZV6r9v5J'; // Replace with actual LIFF ID
                 
-                // Wait for LIFF SDK to be available
-                liff = await waitForLIFF();
-                console.log('LIFF SDK loaded successfully');
-                
-                // Initialize LIFF
                 await liff.init({ 
-                    liffId: LIFF_CONFIG.MEMBER_CARD_ID,
-                    withLoginOnExternalBrowser: true
+                    liffId: liffId,
+                    withLoginOnExternalBrowser: true 
                 });
-                console.log('LIFF initialized successfully');
                 
-                // Check if running in LINE app
+                console.log('LIFF initialized successfully');
+                isLIFFAvailable = true;
+                
                 if (!liff.isInClient()) {
-                    console.log('Running outside LINE app');
-                    showError('กรุณาเปิดในแอป LINE เพื่อใช้งาน Member Card');
+                    showWarning('กรุณาเปิดใน LINE app เพื่อใช้งานจริง ตอนนี้ใช้โหมดทดสอบ');
+                    initializeMockMode();
                     return;
                 }
                 
-                // Check login status
                 if (!liff.isLoggedIn()) {
-                    console.log('User not logged in, redirecting to login...');
                     liff.login();
                     return;
                 }
                 
-                // Get user profile
                 userProfile = await liff.getProfile();
-                console.log('User Profile loaded:', userProfile.displayName);
+                showDebug('LIFF Profile', userProfile);
                 
-                // Load member card data
                 await loadMemberCardData();
-                
-                // Start auto-refresh
-                startAutoRefresh();
                 
             } catch (error) {
                 console.error('LIFF initialization error:', error);
-                handleLIFFError(error);
+                showDebug('LIFF Error', error);
+                throw error;
             }
         }
-        
-        // Handle LIFF errors with specific messages
-        function handleLIFFError(error) {
-            let errorMessage = 'เกิดข้อผิดพลาดในการเชื่อมต่อ';
+
+        function initializeMockMode() {
+            isMockMode = true;
+            userProfile = mockUserProfile;
+            memberData = mockMemberData;
             
-            if (error.message?.includes('LIFF SDK failed to load')) {
-                errorMessage = 'ไม่สามารถโหลด LIFF SDK ได้ กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต';
-            } else if (error.code === 'LIFF_NOT_SUPPORTED') {
-                errorMessage = 'เบราว์เซอร์ของคุณไม่รองรับ LIFF กรุณาเปิดในแอป LINE';
-            } else if (error.code === 'INVALID_LIFF_ID') {
-                errorMessage = 'LIFF ID ไม่ถูกต้อง กรุณาติดต่อผู้ดูแลระบบ';
-            }
+            showDebug('Mock Mode', {
+                message: 'Running in mock mode for testing',
+                profile: userProfile,
+                memberData: memberData
+            });
             
-            showError(errorMessage);
-            showLoading(false);
-            
-            // Show retry button
-            showRetryOption();
+            // Simulate loading delay
+            setTimeout(() => {
+                // Simulate 80% chance of being linked
+                const isLinked = Math.random() > 0.2;
+                
+                if (isLinked) {
+                    displayMemberCard();
+                    startAutoRefresh();
+                } else {
+                    showNotLinked();
+                }
+                
+                showLoading(false);
+            }, 2000);
         }
-        
-        // Show retry option
-        function showRetryOption() {
-            const retryHtml = `
-                <div style="text-align: center; margin-top: 20px;">
-                    <button class="btn btn-primary" onclick="retryInitialization()">
-                        🔄 ลองใหม่อีกครั้ง
-                    </button>
-                    <button class="btn btn-secondary" onclick="openInBrowser()" style="margin-top: 10px;">
-                        🌐 เปิดในเบราว์เซอร์
-                    </button>
+
+        function generateDefaultAvatar() {
+            // Generate a simple SVG avatar
+            return `data:image/svg+xml;base64,${btoa(`
+                <svg width="60" height="60" viewBox="0 0 60 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="30" cy="30" r="30" fill="#06C755"/>
+                    <circle cx="30" cy="22" r="8" fill="white"/>
+                    <path d="M15 45c0-8 7-12 15-12s15 4 15 12" fill="white"/>
+                </svg>
+            `)}`;
+        }
+
+        function showDebug(title, data) {
+            const debugInfo = document.getElementById('debugInfo');
+            const debugContent = document.getElementById('debugContent');
+            
+            const debugHtml = `
+                <div style="margin-bottom: 10px;">
+                    <strong>${title}:</strong>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
                 </div>
             `;
             
-            const errorElement = document.getElementById('errorMessage');
-            if (errorElement) {
-                errorElement.innerHTML += retryHtml;
-            }
+            debugContent.innerHTML += debugHtml;
+            debugInfo.style.display = 'block';
         }
-        
-        // Retry initialization
-        async function retryInitialization() {
-            hideError();
-            await initializeLIFF();
-        }
-        
-        // Open in external browser
-        function openInBrowser() {
-            const url = window.location.href;
-            if (liff && liff.isInClient()) {
-                liff.openWindow({ url: url, external: true });
-            } else {
-                window.open(url, '_blank');
-            }
-        }
-        
-        // Start initialization when DOM is ready
-        document.addEventListener('DOMContentLoaded', () => {
-            // Add small delay to ensure LIFF script is fully loaded
-            setTimeout(initializeLIFF, 500);
-        });
-        
-        // Fallback: Try to initialize on window load if DOM initialization failed
-        window.addEventListener('load', () => {
-            if (!liff && !document.getElementById('memberCardContent').style.display) {
-                console.log('Fallback initialization on window load');
-                setTimeout(initializeLIFF, 1000);
-            }
-        });
-        
+
         async function loadMemberCardData() {
             try {
                 hideError();
+                hideWarning();
                 showLoading(true);
                 
-                // Check account linking status
-                const response = await fetch(`/.netlify/functions/check-account-linking?lineUserId=${userProfile.userId}`, {
-                    method: 'GET',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    }
-                });
+                // Simulate API call delay
+                await delay(1000);
                 
-                const result = await response.json();
-                
-                if (result.success && result.isLinked) {
-                    memberData = result.data;
-                    displayMemberCard();
+                if (isMockMode) {
+                    // Mock: randomly decide if account is linked
+                    const isLinked = Math.random() > 0.2; // 80% chance linked
                     
-                    // Request balance inquiry for latest data
-                    await requestBalanceUpdate();
+                    if (isLinked) {
+                        displayMemberCard();
+                        startAutoRefresh();
+                    } else {
+                        showNotLinked();
+                    }
                 } else {
-                    showNotLinked();
+                    // Real API call (will need actual implementation)
+                    const response = await mockApiCall(`/api/check-account-linking?lineUserId=${userProfile.userId}`);
+                    const result = await response.json();
+                    
+                    if (result.success && result.isLinked) {
+                        memberData = result.data;
+                        displayMemberCard();
+                        await requestBalanceUpdate();
+                        startAutoRefresh();
+                    } else {
+                        showNotLinked();
+                    }
                 }
                 
             } catch (error) {
@@ -669,10 +758,18 @@
                 showLoading(false);
             }
         }
-        
+
         async function requestBalanceUpdate() {
             try {
-                const response = await fetch('/.netlify/functions/balance-inquiry', {
+                if (isMockMode) {
+                    // Update mock data with small random changes
+                    memberData.balance += (Math.random() - 0.5) * 100;
+                    memberData.points += Math.floor(Math.random() * 10);
+                    displayMemberCard();
+                    return;
+                }
+
+                const response = await mockApiCall('/api/balance-inquiry', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -684,9 +781,7 @@
                 });
                 
                 const result = await response.json();
-                
                 if (result.success && result.data) {
-                    // Update member data with latest info
                     memberData = { ...memberData, ...result.data };
                     displayMemberCard();
                 }
@@ -695,7 +790,7 @@
                 console.error('Error requesting balance update:', error);
             }
         }
-        
+
         function displayMemberCard() {
             // Show member card content
             document.getElementById('memberCardContent').style.display = 'block';
@@ -707,8 +802,8 @@
             
             // Set user avatar
             const avatar = document.getElementById('userAvatar');
-            avatar.src = userProfile.pictureUrl || '/assets/default-avatar.png';
-            avatar.onerror = () => avatar.src = '/assets/default-avatar.png';
+            avatar.src = userProfile.pictureUrl || generateDefaultAvatar();
+            avatar.onerror = () => avatar.src = generateDefaultAvatar();
             
             // Update balance
             const balance = parseFloat(memberData.balance) || 0;
@@ -725,7 +820,8 @@
             document.getElementById('pointsValue').textContent = points.toLocaleString();
             
             // Update transaction count
-            const transactionCount = memberData.recent_transactions ? memberData.recent_transactions.length : 0;
+            const transactionCount = memberData.total_transactions || 
+                (memberData.recent_transactions ? memberData.recent_transactions.length : 0);
             document.getElementById('transactionCount').textContent = transactionCount;
             
             // Update progress
@@ -735,10 +831,10 @@
             displayTransactions(memberData.recent_transactions || []);
             
             // Update timestamp
-            document.getElementById('lastUpdated').textContent = 
+            document.getElementById('lastUpdated').textContent =
                 `อัปเดตล่าสุด: ${new Date().toLocaleString('th-TH')}`;
         }
-        
+
         function updateProgress(tier, points) {
             const tierLevels = {
                 'Bronze': { min: 0, max: 1000 },
@@ -754,7 +850,7 @@
             document.getElementById('progressFill').style.width = `${Math.max(progress, 0)}%`;
             document.getElementById('progressText').textContent = `${Math.round(Math.max(progress, 0))}%`;
         }
-        
+
         function displayTransactions(transactions) {
             const container = document.getElementById('transactionsList');
             
@@ -796,7 +892,7 @@
                 `;
             }).join('');
         }
-        
+
         function getTransactionIcon(type) {
             switch (type) {
                 case 'deposit': return '💰';
@@ -807,7 +903,7 @@
                 default: return '📄';
             }
         }
-        
+
         function getTransactionTitle(type) {
             switch (type) {
                 case 'deposit': return 'ฝากเงิน';
@@ -818,26 +914,36 @@
                 default: return 'ธุรกรรม';
             }
         }
-        
+
         function showNotLinked() {
             document.getElementById('notLinkedState').style.display = 'block';
             document.getElementById('memberCardContent').style.display = 'none';
         }
-        
+
         function showLoading(show) {
             document.getElementById('loadingState').style.display = show ? 'block' : 'none';
         }
-        
+
         function showError(message) {
             const errorElement = document.getElementById('errorMessage');
             errorElement.textContent = message;
             errorElement.style.display = 'block';
         }
-        
+
         function hideError() {
             document.getElementById('errorMessage').style.display = 'none';
         }
-        
+
+        function showWarning(message) {
+            const warningElement = document.getElementById('warningMessage');
+            warningElement.textContent = message;
+            warningElement.style.display = 'block';
+        }
+
+        function hideWarning() {
+            document.getElementById('warningMessage').style.display = 'none';
+        }
+
         async function refreshData() {
             const refreshIcon = document.getElementById('refreshIcon');
             refreshIcon.style.transform = 'rotate(360deg)';
@@ -849,7 +955,7 @@
                 refreshIcon.style.transform = 'rotate(0deg)';
             }, 1000);
         }
-        
+
         function startAutoRefresh() {
             if (refreshInterval) {
                 clearInterval(refreshInterval);
@@ -861,36 +967,80 @@
                 }
             }, 30000); // Refresh every 30 seconds
         }
-        
+
         function openAccountLinking() {
-            if (liff.isInClient()) {
+            const url = `${window.location.origin}/liff-account-linking.html`;
+            
+            if (isLIFFAvailable && liff.isInClient()) {
                 liff.openWindow({
-                    url: `${window.location.origin}/liff-account-linking.html`,
+                    url: url,
                     external: false
                 });
             } else {
-                window.location.href = '/liff-account-linking.html';
+                window.open(url, '_blank');
             }
         }
-        
+
         function openPrima789() {
-            if (liff.isInClient()) {
+            const url = 'https://prima789.com';
+            
+            if (isLIFFAvailable && liff.isInClient()) {
                 liff.openWindow({
-                    url: 'https://prima789.com',
+                    url: url,
                     external: true
                 });
             } else {
-                window.open('https://prima789.com', '_blank');
+                window.open(url, '_blank');
             }
         }
-        
+
+        // Mock API function
+        async function mockApiCall(endpoint, options = {}) {
+            console.log(`Mock API Call: ${endpoint}`, options);
+            
+            await delay(500 + Math.random() * 1000);
+            
+            let mockResponse;
+            
+            if (endpoint.includes('check-account-linking')) {
+                mockResponse = {
+                    success: true,
+                    isLinked: Math.random() > 0.2, // 80% linked
+                    data: mockMemberData
+                };
+            } else if (endpoint.includes('balance-inquiry')) {
+                // Update balance slightly
+                mockMemberData.balance += (Math.random() - 0.5) * 50;
+                mockResponse = {
+                    success: true,
+                    data: {
+                        balance: mockMemberData.balance,
+                        points: mockMemberData.points + Math.floor(Math.random() * 5)
+                    }
+                };
+            } else {
+                mockResponse = {
+                    success: true,
+                    data: null
+                };
+            }
+            
+            return {
+                json: async () => mockResponse
+            };
+        }
+
+        function delay(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
         // Cleanup on page unload
         window.addEventListener('beforeunload', () => {
             if (refreshInterval) {
                 clearInterval(refreshInterval);
             }
         });
-        
+
         // Handle page visibility change
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible' && memberData) {
