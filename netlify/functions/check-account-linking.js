@@ -1,85 +1,72 @@
 // ===== netlify/functions/check-account-linking.js =====
-const { 
-    checkUserLinking,
-    getUserBalance,
-    logSystemEvent
-} = require('./utils/database');
+const { query } = require('./utils/database')
 
 exports.handler = async (event, context) => {
-    console.log('🔍 Check Account Linking - Start');
-    
-    const headers = {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Content-Type': 'application/json'
-    };
-    
-    if (event.httpMethod === 'OPTIONS') {
-        return { statusCode: 200, headers, body: '' };
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Content-Type': 'application/json',
+  }
+
+  if (event.httpMethod !== 'GET') {
+    return {
+      statusCode: 405,
+      headers,
+      body: JSON.stringify({ message: 'Method Not Allowed' }),
     }
-    
-    try {
-        const { lineUserId } = JSON.parse(event.body || '{}');
-        
-        if (!lineUserId) {
-            return {
-                statusCode: 400,
-                headers,
-                body: JSON.stringify({
-                    success: false,
-                    error: 'LINE User ID is required'
-                })
-            };
-        }
-        
-        const linkingResult = await checkUserLinking(lineUserId);
-        let balance = 0;
-        
-        if (linkingResult.isLinked) {
-            try {
-                balance = await getUserBalance(lineUserId);
-            } catch (error) {
-                console.warn('⚠️ Failed to get balance:', error);
-                balance = 0;
-            }
-        }
-        
-        const responseData = {
-            ...linkingResult.linkData,
-            balance: linkingResult.isLinked ? balance : 0
-        };
-        
-        await logSystemEvent('check_account_linking', lineUserId, {
-            isLinked: linkingResult.isLinked,
-            balance,
-            source: 'check-account-linking'
-        });
-        
-        return {
-            statusCode: 200,
-            headers,
-            body: JSON.stringify({
-                success: true,
-                isLinked: linkingResult.isLinked,
-                lineUserId,
-                data: responseData,
-                timestamp: new Date().toISOString()
-            })
-        };
-        
-    } catch (error) {
-        console.error('❌ Check account linking error:', error);
-        
-        return {
-            statusCode: 500,
-            headers,
-            body: JSON.stringify({
-                success: false,
-                error: 'Failed to check account linking',
-                message: error.message,
-                timestamp: new Date().toISOString()
-            })
-        };
+  }
+
+  try {
+    const lineUserId = event.queryStringParameters.lineUserId
+    if (!lineUserId) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ message: 'LINE User ID is required' }),
+      }
     }
-};
+
+    const sql = `
+            SELECT 
+                pa.username,
+                pa.first_name,
+                pa.last_name,
+                pa.available as balance,
+                pa.tier,
+                pa.points
+            FROM line_users lu
+            JOIN account_links al ON lu.line_user_id = al.line_user_id
+            JOIN prima789_accounts pa ON al.prima789_username = pa.username
+            WHERE lu.line_user_id = $1 AND al.is_active = TRUE;
+        `
+
+    const result = await query(sql, [lineUserId])
+
+    if (result.rows.length > 0) {
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          isLinked: true,
+          linkData: result.rows[0],
+        }),
+      }
+    } else {
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ isLinked: false }),
+      }
+    }
+  } catch (error) {
+    console.error('Error in check-account-linking:', error)
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({
+        message: 'Internal Server Error',
+        error: error.message,
+      }),
+    }
+  }
+}

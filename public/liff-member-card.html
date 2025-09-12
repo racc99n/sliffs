@@ -6,65 +6,78 @@
     <title>Prima789 Member Card</title>
     <script src="https://static.line-scdn.net/liff/2.22.3/liff.js"></script>
     <style>
-        body { font-family: sans-serif; text-align: center; padding: 20px; }
-        #loader { display: block; }
+        body { font-family: 'Helvetica Neue', sans-serif; background-color: #f4f4f9; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+        .container { width: 100%; max-width: 400px; text-align: center; }
+        .loader { padding: 30px; background: #fff; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.08); }
+        .loader p { font-size: 1.1em; color: #555; }
+        .error-message { color: #d9534f; }
         #member-card-content, #linking-prompt { display: none; }
-        .card { border: 1px solid #ccc; border-radius: 8px; padding: 20px; margin-top: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
-        .card h2 { color: #007bff; }
-        .card p { font-size: 1.2em; }
-        button { padding: 10px 20px; font-size: 1em; cursor: pointer; }
+        .card { background: linear-gradient(135deg, #007bff, #0056b3); color: white; border-radius: 15px; padding: 25px; margin-top: 20px; box-shadow: 0 8px 25px rgba(0, 86, 179, 0.3); text-align: left; }
+        .card h2 { margin: 0 0 20px; border-bottom: 1px solid rgba(255,255,255,0.3); padding-bottom: 15px; font-size: 1.5em; }
+        .card p { font-size: 1.1em; margin: 10px 0; }
+        .card p span { font-weight: bold; float: right; }
+        button { background-color: #28a745; color: white; border: none; padding: 12px 25px; font-size: 1.1em; cursor: pointer; border-radius: 8px; transition: background-color 0.3s; margin-top: 20px; }
+        button:hover { background-color: #218838; }
     </style>
 </head>
 <body>
-    <div id="loader">
-      <h1>กำลังตรวจสอบสถานะ...</h1>
-      <p>กรุณารอสักครู่</p>
-    </div>
+    <div class="container">
+        <div id="loader" class="loader">
+            <h2>กำลังตรวจสอบสถานะ</h2>
+            <p>กรุณารอสักครู่...</p>
+            <p id="error-message" class="error-message"></p>
+        </div>
 
-    <div id="member-card-content">
-      <div class="card">
-        <h2>บัตรสมาชิก Prima789</h2>
-        <p>ชื่อผู้ใช้: <span id="username"></span></p>
-        <p>ยอดเงินคงเหลือ: <span id="balance"></span> THB</p>
-      </div>
-    </div>
+        <div id="member-card-content">
+            <div class="card">
+                <h2>Prima789 Member</h2>
+                <p>ชื่อผู้ใช้: <span id="username"></span></p>
+                <p>ยอดเงินคงเหลือ: <span id="balance"></span></p>
+                <p>ระดับ: <span id="tier"></span></p>
+                <p>คะแนนสะสม: <span id="points"></span></p>
+            </div>
+        </div>
 
-    <div id="linking-prompt">
-      <h1>ยังไม่มีการเชื่อมโยงบัญชี</h1>
-      <p>กรุณาเชื่อมโยงบัญชีเพื่อเข้าถึงข้อมูลสมาชิก</p>
-      <button onclick="linkAccount()">เชื่อมโยงบัญชี</button>
+        <div id="linking-prompt">
+            <h2>ยังไม่ได้เชื่อมโยงบัญชี</h2>
+            <p>กรุณาเชื่อมโยงบัญชี Prima789 ของคุณเพื่อดูข้อมูลสมาชิก</p>
+            <button onclick="linkAccount()">เชื่อมโยงบัญชีทันที</button>
+        </div>
     </div>
 
     <script>
-        // LIFF ID สำหรับ Member Card
-        const LIFF_ID_MEMBER_CARD = "2008090006-ZV6r9v5J";
-        // LIFF ID สำหรับ Account Linking
-        const LIFF_ID_ACCOUNT_LINKING = "2008090006-ZMGmoOla";
-      
+        const LIFF_ID_MEMBER_CARD = "2008090006-ZV6r9v5J"; // <-- ใส่ LIFF ID ของคุณ
+        // URL ของ Netlify Function ที่ Deploy แล้ว
+        const API_BASE_URL = "/.netlify/functions"; 
+
         async function initializeLiff() {
             try {
                 await liff.init({ liffId: LIFF_ID_MEMBER_CARD });
                 if (!liff.isLoggedIn()) {
-                    liff.login();
+                    liff.login({ redirectUri: window.location.href });
                 } else {
-                    checkLinkingStatus();
+                    await checkLinkingStatus();
                 }
             } catch (err) {
                 console.error('LIFF initialization failed', err);
-                document.getElementById('loader').style.display = 'none';
-                document.getElementById('linking-prompt').style.display = 'block';
+                displayError('เกิดข้อผิดพลาดในการเริ่มต้น LIFF');
             }
         }
 
         async function checkLinkingStatus() {
-            const profile = await liff.getProfile();
-            const lineUserId = profile.userId;
-
             try {
-                // เรียก Netlify Function ที่ตรวจสอบสถานะการเชื่อมโยง
-                const response = await fetch(`/.netlify/functions/check-account-linking?lineUserId=${lineUserId}`);
+                const profile = await liff.getProfile();
+                const lineUserId = profile.userId;
+
+                const response = await fetch(`${API_BASE_URL}/check-account-linking?lineUserId=${lineUserId}`);
+                
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.statusText}`);
+                }
+                
                 const data = await response.json();
 
+                document.getElementById('loader').style.display = 'none';
                 if (data.isLinked) {
                     displayMemberCard(data.linkData);
                 } else {
@@ -72,20 +85,30 @@
                 }
             } catch (error) {
                 console.error('Failed to check linking status:', error);
-                document.getElementById('linking-prompt').style.display = 'block';
-            } finally {
-                document.getElementById('loader').style.display = 'none';
+                displayError('ไม่สามารถตรวจสอบสถานะการเชื่อมโยงได้');
             }
         }
 
         function displayMemberCard(userData) {
             document.getElementById('username').textContent = userData.username;
-            document.getElementById('balance').textContent = parseFloat(userData.balance).toFixed(2);
+            document.getElementById('balance').textContent = `${parseFloat(userData.balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} THB`;
+            document.getElementById('tier').textContent = userData.tier || 'N/A';
+            document.getElementById('points').textContent = userData.points ? userData.points.toLocaleString('en-US') : '0';
             document.getElementById('member-card-content').style.display = 'block';
         }
 
         function linkAccount() {
-            liff.openWindow({ url: '/liff-account-linking.html', external: false });
+            // Redirect ไปยัง LIFF App สำหรับการเชื่อมบัญชี
+            // คุณต้องสร้าง LIFF App สำหรับหน้า liff-account-linking.html และนำ URL มาใส่ที่นี่
+            const accountLinkingLiffUrl = 'https://liff.line.me/2008090006-ZV6r9v5J'; // <-- ใส่ LIFF URL
+            window.location.href = accountLinkingLiffUrl;
+        }
+
+        function displayError(message) {
+            document.getElementById('loader').style.display = 'block';
+            document.getElementById('loader').querySelector('h2').textContent = 'เกิดข้อผิดพลาด';
+            document.getElementById('loader').querySelector('p').style.display = 'none';
+            document.getElementById('error-message').textContent = message;
         }
 
         initializeLiff();

@@ -6,80 +6,121 @@
     <title>Prima789 Account Linking</title>
     <script src="https://static.line-scdn.net/liff/2.22.3/liff.js"></script>
     <style>
-        body { font-family: sans-serif; text-align: center; padding: 20px; }
-        .container { max-width: 400px; margin: auto; padding: 20px; border: 1px solid #ccc; border-radius: 8px; }
-        input, button { width: 100%; padding: 10px; margin: 10px 0; box-sizing: border-box; }
+        body { font-family: 'Helvetica Neue', sans-serif; background-color: #f4f4f9; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+        .container { max-width: 400px; width: 100%; margin: auto; padding: 30px; border-radius: 12px; background: #fff; box-shadow: 0 6px 20px rgba(0,0,0,0.08); }
+        h1 { text-align: center; color: #007bff; }
+        .status-message { text-align: center; font-weight: bold; padding: 10px; border-radius: 8px; margin: 15px 0; }
+        .status-message.success { background-color: #d4edda; color: #155724; }
+        .status-message.error { background-color: #f8d7da; color: #721c24; }
+        input { width: 100%; padding: 12px; margin: 10px 0; box-sizing: border-box; border: 1px solid #ccc; border-radius: 8px; font-size: 1em; }
+        button { width: 100%; padding: 12px; font-size: 1.1em; cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 8px; margin-top: 10px; }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
     </style>
 </head>
 <body>
     <div class="container">
-      <h1>เชื่อมโยงบัญชี Prima789</h1>
-      <p id="status-message">กรุณาเข้าสู่ระบบ Prima789 เพื่อเชื่อมโยงบัญชี</p>
-      
-      <!-- ตัวอย่างฟอร์มล็อกอิน (แทนที่ด้วยระบบจริงของคุณ) -->
-      <form id="login-form">
-          <input type="text" id="username" placeholder="Prima789 Username" required>
-          <input type="password" id="password" placeholder="Password" required>
-          <button type="submit">เข้าสู่ระบบและเชื่อมโยง</button>
-      </form>
+        <h1>เชื่อมโยงบัญชี Prima789</h1>
+        <p id="status-message" class="status-message" style="display:none;"></p>
+        
+        <form id="login-form">
+            <input type="text" id="username" placeholder="Prima789 Username" required>
+            <input type="password" id="password" placeholder="Password" required>
+            <button type="submit" id="submit-button">เข้าสู่ระบบและเชื่อมโยง</button>
+        </form>
     </div>
 
     <script>
+        const LIFF_ID_ACCOUNT_LINKING = "2008090006-ZMGmoOla"; // <-- ใส่ LIFF ID ของคุณ
+        const API_BASE_URL = "/.netlify/functions";
+
         async function initializeLiff() {
             try {
-                // LIFF ID สำหรับ Account Linking
-                await liff.init({ liffId: "2008090006-ZMGmoOla" });
+                await liff.init({ liffId: LIFF_ID_ACCOUNT_LINKING });
                 if (!liff.isLoggedIn()) {
-                    liff.login();
+                    liff.login({ redirectUri: window.location.href });
                 }
             } catch (err) {
                 console.error('LIFF initialization failed', err);
-                document.getElementById('status-message').textContent = 'เกิดข้อผิดพลาดในการเริ่มต้น LIFF';
+                updateStatus('เกิดข้อผิดพลาดในการเริ่มต้น LIFF', 'error');
             }
         }
 
         document.getElementById('login-form').addEventListener('submit', async (e) => {
             e.preventDefault();
+            const submitButton = document.getElementById('submit-button');
+            submitButton.disabled = true;
+            submitButton.textContent = 'กำลังดำเนินการ...';
+            updateStatus('กำลังตรวจสอบข้อมูล...', 'info');
+
             const prima789Username = document.getElementById('username').value;
-            // ตัวอย่างข้อมูลผู้ใช้ Prima789 (คุณต้องดึงข้อมูลนี้มาจากระบบจริง)
-            const prima789Data = {
+            const prima789Password = document.getElementById('password').value;
+
+            // ===== ส่วนนี้คือการจำลองการ Login =====
+            // ในระบบจริง คุณต้องเรียก API ของ Prima789 เพื่อตรวจสอบ Username/Password
+            // และดึงข้อมูลผู้ใช้กลับมา
+            // หาก Login สำเร็จ จะได้ข้อมูล user กลับมา
+            //---------------------------------------------
+            // ตัวอย่างข้อมูลที่ควรได้กลับมาจาก API ของ Prima789
+            const prima789UserData = {
                 username: prima789Username,
-                email: 'user@example.com',
-                balance: Math.floor(Math.random() * 1000) + 100, // ตัวอย่างยอดเงิน
-                status: 'active',
-                lastLogin: new Date().toISOString()
+                first_name: "สมชาย", // Dummy data
+                last_name: "ทดสอบ", // Dummy data
+                balance: Math.floor(Math.random() * 10000) + 500, // Dummy data
+                tel: "0812345678" // Dummy data
             };
-            await handlePrima789Login(prima789Data);
+            // --------------------------------------------
+            
+            // หาก Login สำเร็จ ให้เรียกฟังก์ชัน handlePrima789Login
+            await handlePrima789Login(prima789UserData);
+            
+            // หาก Login ไม่สำเร็จ (สมมติ)
+            // updateStatus('Username หรือ Password ไม่ถูกต้อง', 'error');
+            // submitButton.disabled = false;
+            // submitButton.textContent = 'เข้าสู่ระบบและเชื่อมโยง';
         });
 
         async function handlePrima789Login(prima789Data) {
-            document.getElementById('status-message').textContent = 'กำลังเชื่อมโยงบัญชี...';
+            updateStatus('กำลังเชื่อมโยงบัญชี...', 'info');
             try {
                 const profile = await liff.getProfile();
-                const lineUserId = profile.userId;
-
-                const response = await fetch('/.netlify/functions/link-prima789-account', {
+                
+                const response = await fetch(`${API_BASE_URL}/link-prima789-account`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        lineUserId: lineUserId,
+                        lineUserId: profile.userId,
+                        lineProfile: {
+                            displayName: profile.displayName,
+                            pictureUrl: profile.pictureUrl,
+                            statusMessage: profile.statusMessage
+                        },
                         prima789Data: prima789Data
                     }),
                 });
 
                 if (response.ok) {
-                    document.getElementById('status-message').textContent = '✅ เชื่อมโยงบัญชีสำเร็จแล้ว! คุณสามารถปิดหน้านี้ได้เลย';
+                    updateStatus('✅ เชื่อมโยงบัญชีสำเร็จแล้ว! จะปิดหน้านี้ใน 3 วินาที', 'success');
                     setTimeout(() => {
                         liff.closeWindow();
-                    }, 2000);
+                    }, 3000);
                 } else {
                     const errorData = await response.json();
-                    document.getElementById('status-message').textContent = `❌ การเชื่อมโยงบัญชีล้มเหลว: ${errorData.message}`;
+                    throw new Error(errorData.message || 'การเชื่อมโยงล้มเหลว');
                 }
             } catch (error) {
                 console.error('Failed to link account:', error);
-                document.getElementById('status-message').textContent = '⚠️ เกิดข้อผิดพลาดในการเชื่อมโยงบัญชี';
+                updateStatus(`❌ เกิดข้อผิดพลาด: ${error.message}`, 'error');
+                const submitButton = document.getElementById('submit-button');
+                submitButton.disabled = false;
+                submitButton.textContent = 'ลองอีกครั้ง';
             }
+        }
+        
+        function updateStatus(message, type) {
+            const statusElement = document.getElementById('status-message');
+            statusElement.textContent = message;
+            statusElement.className = `status-message ${type}`;
+            statusElement.style.display = 'block';
         }
 
         initializeLiff();
