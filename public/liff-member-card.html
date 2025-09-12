@@ -1,117 +1,1061 @@
 <!DOCTYPE html>
 <html lang="th">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Prima789 Member Card</title>
-    <script src="https://static.line-scdn.net/liff/2.22.3/liff.js"></script>
+    <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/versions/2.27.2/sdk.js"></script>
     <style>
-        body { font-family: 'Helvetica Neue', sans-serif; background-color: #f4f4f9; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
-        .container { width: 100%; max-width: 400px; text-align: center; }
-        .loader { padding: 30px; background: #fff; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.08); }
-        .loader p { font-size: 1.1em; color: #555; }
-        .error-message { color: #d9534f; }
-        #member-card-content, #linking-prompt { display: none; }
-        .card { background: linear-gradient(135deg, #007bff, #0056b3); color: white; border-radius: 15px; padding: 25px; margin-top: 20px; box-shadow: 0 8px 25px rgba(0, 86, 179, 0.3); text-align: left; }
-        .card h2 { margin: 0 0 20px; border-bottom: 1px solid rgba(255,255,255,0.3); padding-bottom: 15px; font-size: 1.5em; }
-        .card p { font-size: 1.1em; margin: 10px 0; }
-        .card p span { font-weight: bold; float: right; }
-        button { background-color: #28a745; color: white; border: none; padding: 12px 25px; font-size: 1.1em; cursor: pointer; border-radius: 8px; transition: background-color 0.3s; margin-top: 20px; }
-        button:hover { background-color: #218838; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: white;
+        }
+
+        .container {
+            max-width: 400px;
+            margin: 0 auto;
+            animation: fadeIn 0.5s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .member-card {
+            background: linear-gradient(135deg, #0f3460 0%, #1a1a2e 100%);
+            border-radius: 20px;
+            padding: 25px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            margin-bottom: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .member-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #06C755, #00ff88, #06C755);
+            animation: shimmer 2s infinite;
+        }
+
+        @keyframes shimmer {
+            0% {
+                transform: translateX(-100%);
+            }
+
+            100% {
+                transform: translateX(100%);
+            }
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+        }
+
+        .card-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #ffffff;
+        }
+
+        .card-tier {
+            background: linear-gradient(45deg, #FFD700, #FFA500);
+            color: #000;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .card-tier.silver {
+            background: linear-gradient(45deg, #C0C0C0, #E6E6FA);
+        }
+
+        .card-tier.bronze {
+            background: linear-gradient(45deg, #CD7F32, #DAA520);
+        }
+
+        .card-tier.platinum {
+            background: linear-gradient(45deg, #E5E4E2, #FFFAFA);
+        }
+
+        .card-tier.diamond {
+            background: linear-gradient(45deg, #B9F2FF, #87CEEB);
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            margin-bottom: 25px;
+        }
+
+        .user-avatar {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            margin-right: 15px;
+            border: 3px solid #06C755;
+            object-fit: cover;
+        }
+
+        .user-details h2 {
+            font-size: 18px;
+            margin-bottom: 5px;
+        }
+
+        .user-details p {
+            font-size: 14px;
+            color: #cccccc;
+        }
+
+        .balance-section {
+            background: rgba(15, 52, 96, 0.6);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .balance-label {
+            font-size: 14px;
+            color: #a0a0a0;
+            margin-bottom: 10px;
+        }
+
+        .balance-amount {
+            font-size: 32px;
+            font-weight: bold;
+            color: #00ff88;
+            margin-bottom: 10px;
+        }
+
+        .balance-subtitle {
+            font-size: 12px;
+            color: #888;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-item {
+            background: rgba(15, 52, 96, 0.4);
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .stat-value {
+            font-size: 20px;
+            font-weight: bold;
+            color: #ffdd44;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #a0a0a0;
+        }
+
+        .progress-section {
+            margin-bottom: 20px;
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        .progress-bar {
+            height: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #ffdd44, #ffa500);
+            border-radius: 4px;
+            transition: width 1s ease;
+        }
+
+        .transactions-section {
+            background: rgba(15, 52, 96, 0.4);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .section-title {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #ffffff;
+        }
+
+        .transaction-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .transaction-item:last-child {
+            border-bottom: none;
+        }
+
+        .transaction-info {
+            display: flex;
+            align-items: center;
+        }
+
+        .transaction-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 12px;
+            font-size: 16px;
+        }
+
+        .transaction-icon.deposit {
+            background: rgba(0, 255, 136, 0.2);
+            color: #00ff88;
+        }
+
+        .transaction-icon.withdraw {
+            background: rgba(255, 107, 107, 0.2);
+            color: #ff6b6b;
+        }
+
+        .transaction-icon.bet {
+            background: rgba(255, 221, 68, 0.2);
+            color: #ffdd44;
+        }
+
+        .transaction-icon.win {
+            background: rgba(0, 255, 136, 0.2);
+            color: #00ff88;
+        }
+
+        .transaction-icon.bonus {
+            background: rgba(138, 43, 226, 0.2);
+            color: #8a2be2;
+        }
+
+        .transaction-details h4 {
+            font-size: 14px;
+            margin-bottom: 2px;
+        }
+
+        .transaction-details p {
+            font-size: 12px;
+            color: #888;
+        }
+
+        .transaction-amount {
+            font-weight: bold;
+        }
+
+        .amount-positive {
+            color: #00ff88;
+        }
+
+        .amount-negative {
+            color: #ff6b6b;
+        }
+
+        .action-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #06C755, #00B900);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .loading.show {
+            display: block;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid #06C755;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .error-message {
+            background: rgba(255, 107, 107, 0.2);
+            border: 1px solid #ff6b6b;
+            color: #ff6b6b;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .warning-message {
+            background: rgba(255, 193, 7, 0.2);
+            border: 1px solid #ffc107;
+            color: #ffc107;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .not-linked {
+            text-align: center;
+            padding: 40px 20px;
+        }
+
+        .not-linked-icon {
+            width: 80px;
+            height: 80px;
+            background: rgba(255, 107, 107, 0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            font-size: 30px;
+            color: #ff6b6b;
+        }
+
+        .last-updated {
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+            margin-top: 20px;
+        }
+
+        .debug-info {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+            font-size: 12px;
+        }
+
+        .debug-info h4 {
+            margin-bottom: 10px;
+            color: #ffc107;
+        }
+
+        .debug-info pre {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+        }
+
+        @media (max-width: 480px) {
+            .container {
+                margin: 10px;
+            }
+
+            .member-card {
+                padding: 20px;
+            }
+
+            .balance-amount {
+                font-size: 28px;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .action-buttons {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
+
 <body>
     <div class="container">
-        <div id="loader" class="loader">
-            <h2>กำลังตรวจสอบสถานะ</h2>
-            <p>กรุณารอสักครู่...</p>
-            <p id="error-message" class="error-message"></p>
+        <!-- Loading State -->
+        <div class="loading show" id="loadingState">
+            <div class="spinner"></div>
+            <p>กำลังโหลดข้อมูล Member Card...</p>
         </div>
 
-        <div id="member-card-content">
-            <div class="card">
-                <h2>Prima789 Member</h2>
-                <p>ชื่อผู้ใช้: <span id="username"></span></p>
-                <p>ยอดเงินคงเหลือ: <span id="balance"></span></p>
-                <p>ระดับ: <span id="tier"></span></p>
-                <p>คะแนนสะสม: <span id="points"></span></p>
+        <!-- Error State -->
+        <div class="error-message" id="errorMessage" style="display: none;">
+        </div>
+
+        <!-- Warning State -->
+        <div class="warning-message" id="warningMessage" style="display: none;">
+        </div>
+
+        <!-- Debug Info -->
+        <div class="debug-info" id="debugInfo" style="display: none;">
+            <h4>Debug Information:</h4>
+            <div id="debugContent"></div>
+        </div>
+
+        <!-- Not Linked State -->
+        <div class="not-linked" id="notLinkedState" style="display: none;">
+            <div class="not-linked-icon">⚠️</div>
+            <h2 style="margin-bottom: 15px;">บัญชียังไม่ได้เชื่อมโยง</h2>
+            <p style="margin-bottom: 25px; color: #888; line-height: 1.6;">
+                กรุณาเชื่อมโยงบัญชี Prima789 ของคุณก่อนใช้งาน Member Card
+            </p>
+            <button class="btn btn-primary" onclick="openAccountLinking()">
+                🔗 เชื่อมโยงบัญชี
+            </button>
+        </div>
+
+        <!-- Member Card Content -->
+        <div id="memberCardContent" style="display: none;">
+            <div class="member-card">
+                <div class="card-header">
+                    <div class="card-title">💳 PRIMA789</div>
+                    <div class="card-tier" id="userTier">GOLD</div>
+                </div>
+
+                <div class="user-info">
+                    <img src="" alt="Avatar" class="user-avatar" id="userAvatar">
+                    <div class="user-details">
+                        <h2 id="userName">Loading...</h2>
+                        <p id="userID">ID: Loading...</p>
+                    </div>
+                </div>
+
+                <div class="balance-section">
+                    <div class="balance-label">ยอดเงินคงเหลือ</div>
+                    <div class="balance-amount" id="balanceAmount">฿0</div>
+                    <div class="balance-subtitle">Prima789 Wallet</div>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-value" id="pointsValue">0</div>
+                        <div class="stat-label">คะแนนสะสม</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="transactionCount">0</div>
+                        <div class="stat-label">ธุรกรรมทั้งหมด</div>
+                    </div>
+                </div>
+
+                <div class="progress-section">
+                    <div class="progress-header">
+                        <span style="font-size: 14px;">ความคืบหน้าระดับถัดไป</span>
+                        <span style="font-size: 12px; color: #888;" id="progressText">0%</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill" style="width: 0%;"></div>
+                    </div>
+                </div>
+
+                <div class="action-buttons">
+                    <button class="btn btn-primary" onclick="refreshData()">
+                        <span id="refreshIcon">🔄</span> อัปเดต
+                    </button>
+                    <button class="btn btn-secondary" onclick="openPrima789()">
+                        🌐 เปิดเว็บไซต์
+                    </button>
+                </div>
             </div>
-        </div>
 
-        <div id="linking-prompt">
-            <h2>ยังไม่ได้เชื่อมโยงบัญชี</h2>
-            <p>กรุณาเชื่อมโยงบัญชี Prima789 ของคุณเพื่อดูข้อมูลสมาชิก</p>
-            <button onclick="linkAccount()">เชื่อมโยงบัญชีทันที</button>
+            <div class="transactions-section">
+                <div class="section-title">📊 ธุรกรรมล่าสุด</div>
+                <div id="transactionsList">
+                    <!-- Transactions will be populated here -->
+                </div>
+            </div>
+
+            <div class="last-updated" id="lastUpdated">
+                อัปเดตล่าสุด: กำลังโหลด...
+            </div>
         </div>
     </div>
 
     <script>
-        const LIFF_ID_MEMBER_CARD = "2008090006-ZV6r9v5J"; // <-- ใส่ LIFF ID ของคุณ
-        // URL ของ Netlify Function ที่ Deploy แล้ว
-        const API_BASE_URL = "/.netlify/functions"; 
+        let userProfile = null;
+        let memberData = null;
+        let refreshInterval = null;
+        let isLIFFAvailable = false;
+        let isMockMode = false;
 
-        async function initializeLiff() {
-            try {
-                await liff.init({ liffId: LIFF_ID_MEMBER_CARD });
-                if (!liff.isLoggedIn()) {
-                    liff.login({ redirectUri: window.location.href });
-                } else {
-                    await checkLinkingStatus();
+        // Mock data for testing
+        const mockUserProfile = {
+            userId: 'U' + Math.random().toString(36).substr(2, 32),
+            displayName: 'สมชาย ทดสอบ',
+            pictureUrl: generateDefaultAvatar(),
+            statusMessage: 'Hello LINE!',
+            language: 'th'
+        };
+
+        const mockMemberData = {
+            username: 'testuser123',
+            display_name: 'สมชาย ทดสอบ',
+            balance: 45680.50,
+            tier: 'Gold',
+            points: 8750,
+            total_transactions: 156,
+            member_since: '2023-01-15',
+            last_login: new Date().toISOString(),
+            recent_transactions: [
+                {
+                    transaction_type: 'deposit',
+                    amount: 5000,
+                    timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+                    description: 'ฝากเงินผ่านธนาคาร'
+                },
+                {
+                    transaction_type: 'bet',
+                    amount: -500,
+                    timestamp: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
+                    description: 'วางเดิมพันบาคาร่า'
+                },
+                {
+                    transaction_type: 'win',
+                    amount: 1200,
+                    timestamp: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
+                    description: 'ชนะเดิมพันบาคาร่า'
+                },
+                {
+                    transaction_type: 'bonus',
+                    amount: 250,
+                    timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+                    description: 'โบนัสสมาชิกประจำวัน'
+                },
+                {
+                    transaction_type: 'withdraw',
+                    amount: -2000,
+                    timestamp: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+                    description: 'ถอนเงินเข้าบัญชี xxx-x-x1234-x'
                 }
-            } catch (err) {
-                console.error('LIFF initialization failed', err);
-                displayError('เกิดข้อผิดพลาดในการเริ่มต้น LIFF');
+            ]
+        };
+
+        // Initialize app
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                await initializeApp();
+            } catch (error) {
+                console.error('App initialization failed:', error);
+                showError('เกิดข้อผิดพลาดในการเริ่มต้นแอปพลิเคชัน');
+                showLoading(false);
             }
-        }
+        });
 
-        async function checkLinkingStatus() {
+        async function initializeApp() {
             try {
-                const profile = await liff.getProfile();
-                const lineUserId = profile.userId;
-
-                const response = await fetch(`${API_BASE_URL}/check-account-linking?lineUserId=${lineUserId}`);
-                
-                if (!response.ok) {
-                    throw new Error(`Server error: ${response.statusText}`);
-                }
-                
-                const data = await response.json();
-
-                document.getElementById('loader').style.display = 'none';
-                if (data.isLinked) {
-                    displayMemberCard(data.linkData);
+                // Check if LIFF SDK is available
+                if (typeof liff !== 'undefined') {
+                    await initializeLIFF();
                 } else {
-                    document.getElementById('linking-prompt').style.display = 'block';
+                    console.warn('LIFF SDK not available, switching to mock mode');
+                    showWarning('LIFF SDK ไม่พร้อมใช้งาน กำลังใช้โหมดทดสอบ');
+                    initializeMockMode();
                 }
             } catch (error) {
-                console.error('Failed to check linking status:', error);
-                displayError('ไม่สามารถตรวจสอบสถานะการเชื่อมโยงได้');
+                console.error('App initialization error:', error);
+                showDebug('App Init Error', error);
+                showWarning('ไม่สามารถเชื่อมต่อ LIFF ได้ กำลังใช้โหมดทดสอบ');
+                initializeMockMode();
             }
         }
 
-        function displayMemberCard(userData) {
-            document.getElementById('username').textContent = userData.username;
-            document.getElementById('balance').textContent = `${parseFloat(userData.balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} THB`;
-            document.getElementById('tier').textContent = userData.tier || 'N/A';
-            document.getElementById('points').textContent = userData.points ? userData.points.toLocaleString('en-US') : '0';
-            document.getElementById('member-card-content').style.display = 'block';
+        async function initializeLIFF() {
+            try {
+                const liffId = '2008090006-ZV6r9v5J'; // Replace with actual LIFF ID
+
+                await liff.init({
+                    liffId: liffId,
+                    withLoginOnExternalBrowser: true
+                });
+
+                console.log('LIFF initialized successfully');
+                isLIFFAvailable = true;
+
+                if (!liff.isInClient()) {
+                    showWarning('กรุณาเปิดใน LINE app เพื่อใช้งานจริง ตอนนี้ใช้โหมดทดสอบ');
+                    initializeMockMode();
+                    return;
+                }
+
+                if (!liff.isLoggedIn()) {
+                    liff.login();
+                    return;
+                }
+
+                userProfile = await liff.getProfile();
+                showDebug('LIFF Profile', userProfile);
+
+                await loadMemberCardData();
+
+            } catch (error) {
+                console.error('LIFF initialization error:', error);
+                showDebug('LIFF Error', error);
+                throw error;
+            }
         }
 
-        function linkAccount() {
-            // Redirect ไปยัง LIFF App สำหรับการเชื่อมบัญชี
-            // คุณต้องสร้าง LIFF App สำหรับหน้า liff-account-linking.html และนำ URL มาใส่ที่นี่
-            const accountLinkingLiffUrl = 'https://liff.line.me/2008090006-ZV6r9v5J'; // <-- ใส่ LIFF URL
-            window.location.href = accountLinkingLiffUrl;
+        function initializeMockMode() {
+            isMockMode = true;
+            userProfile = mockUserProfile;
+            memberData = mockMemberData;
+
+            showDebug('Mock Mode', {
+                message: 'Running in mock mode for testing',
+                profile: userProfile,
+                memberData: memberData
+            });
+
+            // Simulate loading delay
+            setTimeout(() => {
+                // Simulate 80% chance of being linked
+                const isLinked = Math.random() > 0.2;
+
+                if (isLinked) {
+                    displayMemberCard();
+                    startAutoRefresh();
+                } else {
+                    showNotLinked();
+                }
+
+                showLoading(false);
+            }, 2000);
         }
 
-        function displayError(message) {
-            document.getElementById('loader').style.display = 'block';
-            document.getElementById('loader').querySelector('h2').textContent = 'เกิดข้อผิดพลาด';
-            document.getElementById('loader').querySelector('p').style.display = 'none';
-            document.getElementById('error-message').textContent = message;
+        function generateDefaultAvatar() {
+            // Generate a simple SVG avatar
+            return `data:image/svg+xml;base64,${btoa(`
+                <svg width="60" height="60" viewBox="0 0 60 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="30" cy="30" r="30" fill="#06C755"/>
+                    <circle cx="30" cy="22" r="8" fill="white"/>
+                    <path d="M15 45c0-8 7-12 15-12s15 4 15 12" fill="white"/>
+                </svg>
+            `)}`;
         }
 
-        initializeLiff();
+        function showDebug(title, data) {
+            const debugInfo = document.getElementById('debugInfo');
+            const debugContent = document.getElementById('debugContent');
+
+            const debugHtml = `
+                <div style="margin-bottom: 10px;">
+                    <strong>${title}:</strong>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                </div>
+            `;
+
+            debugContent.innerHTML += debugHtml;
+            debugInfo.style.display = 'block';
+        }
+
+        async function loadMemberCardData() {
+            try {
+                hideError();
+                hideWarning();
+                showLoading(true);
+
+                if (!userProfile?.userId) {
+                    throw new Error('ไม่พบข้อมูล LINE User');
+                }
+
+                // เรียก API จริงแทน mock
+                const result = await makeApiCall(
+                    `${API_CONFIG.ENDPOINTS.CHECK_LINKING}?lineUserId=${userProfile.userId}`
+                );
+
+                if (!result.success) {
+                    throw new Error(result.error || 'ไม่สามารถตรวจสอบการเชื่อมโยงได้');
+                }
+
+                if (result.data.isLinked) {
+                    memberData = result.data.memberData;
+                    displayMemberCard();
+                    await requestBalanceUpdate();
+                    startAutoRefresh();
+                } else {
+                    showNotLinked();
+                }
+
+            } catch (error) {
+                console.error('Error loading member data:', error);
+                showError(error.message || 'ไม่สามารถโหลดข้อมูลได้ กรุณาลองใหม่อีกครั้ง');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function requestBalanceUpdate() {
+            try {
+                if (!userProfile?.userId) return;
+
+                const result = await makeApiCall(API_CONFIG.ENDPOINTS.BALANCE_INQUIRY, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        lineUserId: userProfile.userId,
+                        requestType: 'balance_and_transactions'
+                    })
+                });
+
+                if (result.success && result.data) {
+                    // อัปเดตข้อมูลสมาชิก
+                    memberData = { ...memberData, ...result.data };
+                    displayMemberCard();
+
+                    // แสดงข้อมูลล่าสุด
+                    console.log('Balance updated:', result.data);
+                }
+
+            } catch (error) {
+                console.error('Error requesting balance update:', error);
+                // ไม่แสดง error สำหรับ background updates
+            }
+        }
+
+        function displayMemberCard() {
+            // Show member card content
+            document.getElementById('memberCardContent').style.display = 'block';
+            document.getElementById('notLinkedState').style.display = 'none';
+
+            // Update user info
+            document.getElementById('userName').textContent = memberData.display_name || memberData.username;
+            document.getElementById('userID').textContent = `ID: ${memberData.username}`;
+
+            // Set user avatar
+            const avatar = document.getElementById('userAvatar');
+            avatar.src = userProfile.pictureUrl || generateDefaultAvatar();
+            avatar.onerror = () => avatar.src = generateDefaultAvatar();
+
+            // Update balance
+            const balance = parseFloat(memberData.balance) || 0;
+            document.getElementById('balanceAmount').textContent = `฿${balance.toLocaleString()}`;
+
+            // Update tier
+            const tier = memberData.tier || 'Bronze';
+            const tierElement = document.getElementById('userTier');
+            tierElement.textContent = tier.toUpperCase();
+            tierElement.className = `card-tier ${tier.toLowerCase()}`;
+
+            // Update points
+            const points = parseInt(memberData.points) || 0;
+            document.getElementById('pointsValue').textContent = points.toLocaleString();
+
+            // Update transaction count
+            const transactionCount = memberData.total_transactions ||
+                (memberData.recent_transactions ? memberData.recent_transactions.length : 0);
+            document.getElementById('transactionCount').textContent = transactionCount;
+
+            // Update progress
+            updateProgress(tier, points);
+
+            // Display transactions
+            displayTransactions(memberData.recent_transactions || []);
+
+            // Update timestamp
+            document.getElementById('lastUpdated').textContent =
+                `อัปเดตล่าสุด: ${new Date().toLocaleString('th-TH')}`;
+        }
+
+        function updateProgress(tier, points) {
+            const tierLevels = {
+                'Bronze': { min: 0, max: 1000 },
+                'Silver': { min: 1000, max: 5000 },
+                'Gold': { min: 5000, max: 20000 },
+                'Platinum': { min: 20000, max: 50000 },
+                'Diamond': { min: 50000, max: 100000 }
+            };
+
+            const currentLevel = tierLevels[tier] || tierLevels['Bronze'];
+            const progress = Math.min((points - currentLevel.min) / (currentLevel.max - currentLevel.min) * 100, 100);
+
+            document.getElementById('progressFill').style.width = `${Math.max(progress, 0)}%`;
+            document.getElementById('progressText').textContent = `${Math.round(Math.max(progress, 0))}%`;
+        }
+
+        function displayTransactions(transactions) {
+            const container = document.getElementById('transactionsList');
+
+            if (!transactions || transactions.length === 0) {
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 20px; color: #888;">
+                        ยังไม่มีธุรกรรม
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = transactions.slice(0, 5).map(tx => {
+                const amount = parseFloat(tx.amount) || 0;
+                const isPositive = amount >= 0;
+                const icon = getTransactionIcon(tx.transaction_type);
+                const date = new Date(tx.timestamp || tx.created_at).toLocaleDateString('th-TH', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+
+                return `
+                    <div class="transaction-item">
+                        <div class="transaction-info">
+                            <div class="transaction-icon ${tx.transaction_type}">
+                                ${icon}
+                            </div>
+                            <div class="transaction-details">
+                                <h4>${getTransactionTitle(tx.transaction_type)}</h4>
+                                <p>${date}</p>
+                            </div>
+                        </div>
+                        <div class="transaction-amount ${isPositive ? 'amount-positive' : 'amount-negative'}">
+                            ${isPositive ? '+' : ''}฿${Math.abs(amount).toLocaleString()}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function getTransactionIcon(type) {
+            switch (type) {
+                case 'deposit': return '💰';
+                case 'withdraw': return '💸';
+                case 'bet': return '🎲';
+                case 'win': return '🏆';
+                case 'bonus': return '🎁';
+                default: return '📄';
+            }
+        }
+
+        function getTransactionTitle(type) {
+            switch (type) {
+                case 'deposit': return 'ฝากเงิน';
+                case 'withdraw': return 'ถอนเงิน';
+                case 'bet': return 'วางเดิมพัน';
+                case 'win': return 'ชนะเดิมพัน';
+                case 'bonus': return 'โบนัส';
+                default: return 'ธุรกรรม';
+            }
+        }
+
+        function showNotLinked() {
+            document.getElementById('notLinkedState').style.display = 'block';
+            document.getElementById('memberCardContent').style.display = 'none';
+        }
+
+        function showLoading(show) {
+            document.getElementById('loadingState').style.display = show ? 'block' : 'none';
+        }
+
+        function showError(message) {
+            const errorElement = document.getElementById('errorMessage');
+            errorElement.textContent = message;
+            errorElement.style.display = 'block';
+        }
+
+        function hideError() {
+            document.getElementById('errorMessage').style.display = 'none';
+        }
+
+        function showWarning(message) {
+            const warningElement = document.getElementById('warningMessage');
+            warningElement.textContent = message;
+            warningElement.style.display = 'block';
+        }
+
+        function hideWarning() {
+            document.getElementById('warningMessage').style.display = 'none';
+        }
+
+        async function refreshData() {
+            const refreshIcon = document.getElementById('refreshIcon');
+            refreshIcon.style.transform = 'rotate(360deg)';
+            refreshIcon.style.transition = 'transform 1s ease';
+
+            await loadMemberCardData();
+
+            setTimeout(() => {
+                refreshIcon.style.transform = 'rotate(0deg)';
+            }, 1000);
+        }
+
+        function startAutoRefresh() {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+            }
+
+            refreshInterval = setInterval(async () => {
+                if (memberData) {
+                    await requestBalanceUpdate();
+                }
+            }, 30000); // Refresh every 30 seconds
+        }
+
+        function openAccountLinking() {
+            const url = `${window.location.origin}/liff-account-linking.html`;
+
+            if (isLIFFAvailable && liff.isInClient()) {
+                liff.openWindow({
+                    url: url,
+                    external: false
+                });
+            } else {
+                window.open(url, '_blank');
+            }
+        }
+
+        function openPrima789() {
+            const url = 'https://prima789.com';
+
+            if (isLIFFAvailable && liff.isInClient()) {
+                liff.openWindow({
+                    url: url,
+                    external: true
+                });
+            } else {
+                window.open(url, '_blank');
+            }
+        }
+
+        // Mock API function
+        async function mockApiCall(endpoint, options = {}) {
+            console.log(`Mock API Call: ${endpoint}`, options);
+
+            await delay(500 + Math.random() * 1000);
+
+            let mockResponse;
+
+            if (endpoint.includes('check-account-linking')) {
+                mockResponse = {
+                    success: true,
+                    isLinked: Math.random() > 0.2, // 80% linked
+                    data: mockMemberData
+                };
+            } else if (endpoint.includes('balance-inquiry')) {
+                // Update balance slightly
+                mockMemberData.balance += (Math.random() - 0.5) * 50;
+                mockResponse = {
+                    success: true,
+                    data: {
+                        balance: mockMemberData.balance,
+                        points: mockMemberData.points + Math.floor(Math.random() * 5)
+                    }
+                };
+            } else {
+                mockResponse = {
+                    success: true,
+                    data: null
+                };
+            }
+
+            return {
+                json: async () => mockResponse
+            };
+        }
+
+        function delay(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+            }
+        });
+
+        // Handle page visibility change
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && memberData) {
+                requestBalanceUpdate();
+            }
+        });
     </script>
 </body>
+
 </html>

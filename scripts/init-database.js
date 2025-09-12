@@ -23,7 +23,7 @@ const pool = new Pool({
     ssl: {
         rejectUnauthorized: false
     }
-}   
+});
 
 // Fallback inline schema creation
 async function createInlineSchema() {
@@ -127,7 +127,7 @@ VALUES
 ('vipgamer99', 'vipgamer99', 'วีไอพี', 'เกมเมอร์', 155000.00, 'Diamond', 25680, NOW() - INTERVAL '60 days', NOW())
 ON CONFLICT (username) DO NOTHING;
     `;
-});
+}
 
 async function initializeDatabase() {
     console.log('🗄️  Initializing Prima789 LINE Member Card Database...\n');
@@ -140,12 +140,20 @@ async function initializeDatabase() {
         console.log('✅ Database connected:', result.rows[0].now);
         client.release();
         
-        // Read and execute schema
+        // Try to read schema file, fallback to inline schema
         console.log('\n📋 Creating database schema...');
-        const schemaSQL = await fs.promises.readFile(
-            path.join(__dirname, '..', 'database-schema.sql'), 
-            'utf8'
-        );
+        let schemaSQL;
+        
+        try {
+            schemaSQL = await fs.promises.readFile(
+                path.join(__dirname, '..', 'database-schema.sql'), 
+                'utf8'
+            );
+            console.log('📄 Using external schema file...');
+        } catch (fileError) {
+            console.log('⚠️  Schema file not found, using inline schema...');
+            schemaSQL = await createInlineSchema();
+        }
         
         // Split and execute SQL statements
         const statements = schemaSQL
