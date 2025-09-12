@@ -1,922 +1,700 @@
-const crypto = require('crypto')
-const { Pool } = require('pg')
+const {
+  upsertLineUser,
+  checkUserLinking,
+  getUserTransactions,
+  getPrima789Account,
+  logSystemEvent,
+} = require('./utils/database')
 
-const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN
 const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET
+const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN
+const crypto = require('crypto')
 
 exports.handler = async (event, context) => {
   console.log('🤖 LINE Bot Webhook - Start')
-  console.log('HTTP Method:', event.httpMethod)
-  console.log('Headers:', event.headers)
 
-  // Handle CORS
+  // CORS headers
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers':
+      'Content-Type, Authorization, X-Line-Signature',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Content-Type': 'application/json',
+  }
+
   if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers':
-          'Content-Type, Authorization, X-Line-Signature',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      },
-      body: '',
-    }
+    return { statusCode: 200, headers, body: '' }
   }
 
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Method not allowed' }),
+      headers,
+      body: JSON.stringify({
+        success: false,
+        error: 'Method not allowed',
+      }),
     }
   }
 
   try {
     // Verify LINE signature
-    const signature =
-      event.headers['x-line-signature'] || event.headers['X-Line-Signature']
-    if (!verifySignature(event.body, signature)) {
-      console.error('❌ Invalid LINE signature')
+    const signature = event.headers['x-line-signature']
+    const body = event.body
+
+    if (!verifyLineSignature(body, signature)) {
+      console.log('❌ Invalid LINE signature')
       return {
         statusCode: 401,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: 'Unauthorized' }),
+        headers,
+        body: JSON.stringify({
+          success: false,
+          error: 'Invalid signature',
+        }),
       }
     }
 
-    const body = JSON.parse(event.body)
-    console.log('📥 Webhook body:', JSON.stringify(body, null, 2))
+    const webhookData = JSON.parse(body)
+    console.log('📥 LINE Webhook received:', {
+      destination: webhookData.destination,
+      events: webhookData.events?.length || 0,
+    })
 
-    // Process events
-    for (const webhookEvent of body.events) {
-      await handleLineEvent(webhookEvent)
+    // Process each event
+    const responses = []
+
+    for (const event of webhookData.events || []) {
+      try {
+        const response = await processLineEvent(event)
+        if (response) {
+          responses.push(response)
+        }
+      } catch (error) {
+        console.error('Error processing event:', error)
+        await logSystemEvent(
+          'ERROR',
+          'webhook-process-event',
+          `Error processing LINE event: ${error.message}`,
+          { event_type: event.type, error: error.message }
+        )
+      }
     }
+
+    console.log(
+      `✅ LINE Webhook processed ${webhookData.events?.length || 0} events`
+    )
 
     return {
       statusCode: 200,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ success: true }),
+      headers,
+      body: JSON.stringify({
+        success: true,
+        processed_events: webhookData.events?.length || 0,
+        responses: responses.length,
+      }),
     }
   } catch (error) {
-    console.error('❌ Webhook error:', error)
+    console.error('❌ LINE Webhook Error:', error)
+
+    await logSystemEvent(
+      'ERROR',
+      'webhook',
+      `Webhook processing error: ${error.message}`,
+      { error: error.message, stack: error.stack }
+    )
+
     return {
       statusCode: 500,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Internal server error' }),
+      headers,
+      body: JSON.stringify({
+        success: false,
+        error: 'Internal server error',
+      }),
     }
   }
 }
 
 // Verify LINE signature
-function verifySignature(body, signature) {
-  if (!signature || !LINE_CHANNEL_SECRET) {
+function verifyLineSignature(body, signature) {
+  if (!LINE_CHANNEL_SECRET || !signature) {
+    console.log('Missing channel secret or signature')
     return false
   }
 
   const hash = crypto
     .createHmac('sha256', LINE_CHANNEL_SECRET)
-    .update(body)
+    .update(body, 'utf8')
     .digest('base64')
 
   return signature === `sha256=${hash}`
 }
 
-// Handle LINE events
-async function handleLineEvent(event) {
-  const { type, source, replyToken } = event
-  const userId = source.userId
+// Process individual LINE event
+async function processLineEvent(event) {
+  console.log(
+    `Processing ${event.type} event from user: ${event.source?.userId}`
+  )
 
-  console.log(`📱 Event type: ${type}, User: ${userId}`)
-
-  try {
-    switch (type) {
-      case 'message':
-        await handleMessage(event)
-        break
-      case 'postback':
-        await handlePostback(event)
-        break
-      case 'follow':
-        await handleFollow(event)
-        break
-      case 'unfollow':
-        await handleUnfollow(event)
-        break
-      default:
-        console.log(`ℹ️ Unhandled event type: ${type}`)
-    }
-
-    // Log user activity
-    await logUserActivity(userId, type, {
-      event_data: event,
-      timestamp: new Date().toISOString(),
-    })
-  } catch (error) {
-    console.error(`❌ Error handling ${type} event:`, error)
+  switch (event.type) {
+    case 'message':
+      return await handleMessage(event)
+    case 'postback':
+      return await handlePostback(event)
+    case 'follow':
+      return await handleFollow(event)
+    case 'unfollow':
+      return await handleUnfollow(event)
+    case 'join':
+      return await handleJoin(event)
+    case 'accountLink':
+      return await handleAccountLink(event)
+    default:
+      console.log(`Unhandled event type: ${event.type}`)
+      return null
   }
 }
 
-// Handle message events
+// Handle text messages
 async function handleMessage(event) {
-  const { replyToken, message, source } = event
-  const userId = source.userId
-  const messageText = message.text?.toLowerCase() || ''
+  if (event.message.type !== 'text') {
+    return null
+  }
 
-  console.log(`💬 Message from ${userId}: ${messageText}`)
+  const userId = event.source.userId
+  const messageText = event.message.text.toLowerCase().trim()
 
-  // Check if user account is linked
-  const linkStatus = await checkAccountLinking(userId)
+  console.log(`📝 Message from ${userId}: ${messageText}`)
 
-  if (messageText.includes('help') || messageText.includes('ช่วย')) {
-    await sendHelpMessage(replyToken)
-  } else if (messageText.includes('balance') || messageText.includes('ยอด')) {
-    await handleBalanceInquiry(userId, replyToken)
-  } else if (messageText.includes('link') || messageText.includes('เชื่อม')) {
-    await sendAccountLinkingInfo(replyToken)
-  } else if (messageText.includes('card') || messageText.includes('การ์ด')) {
-    if (linkStatus.isLinked) {
-      await sendMemberCardLink(replyToken)
-    } else {
-      await sendNotLinkedMessage(replyToken)
-    }
+  // Get user profile and sync
+  const userProfile = await getLineUserProfile(userId)
+  if (userProfile) {
+    await upsertLineUser(userProfile)
+  }
+
+  let replyMessage = null
+
+  // Command handling
+  if (
+    messageText.includes('บัตร') ||
+    messageText.includes('member') ||
+    messageText.includes('card')
+  ) {
+    replyMessage = await handleMemberCardCommand(userId)
+  } else if (
+    messageText.includes('ยอด') ||
+    messageText.includes('เงิน') ||
+    messageText.includes('balance')
+  ) {
+    replyMessage = await handleBalanceCommand(userId)
+  } else if (
+    messageText.includes('ประวัติ') ||
+    messageText.includes('history') ||
+    messageText.includes('transaction')
+  ) {
+    replyMessage = await handleHistoryCommand(userId)
+  } else if (
+    messageText.includes('เชื่อมโยง') ||
+    messageText.includes('link') ||
+    messageText.includes('เชื่อม')
+  ) {
+    replyMessage = await handleLinkCommand(userId)
+  } else if (
+    messageText.includes('ช่วย') ||
+    messageText.includes('help') ||
+    messageText.includes('คำสั่ง')
+  ) {
+    replyMessage = getHelpMessage()
+  } else if (
+    messageText.includes('สวัสดี') ||
+    messageText.includes('hello') ||
+    messageText.includes('hi')
+  ) {
+    replyMessage = await getWelcomeMessage(userId)
   } else {
-    // Default greeting with account status
-    await sendGreeting(replyToken, linkStatus)
-  }
-}
-
-// Handle postback events
-async function handlePostback(event) {
-  const { replyToken, postback, source } = event
-  const userId = source.userId
-  const data = postback.data
-
-  console.log(`🔄 Postback from ${userId}: ${data}`)
-
-  try {
-    const params = parsePostbackData(data)
-    const action = params.action
-
-    switch (action) {
-      case 'open_member_card':
-        await sendMemberCardLink(replyToken)
-        break
-      case 'refresh_balance':
-        await handleBalanceInquiry(userId, replyToken, 'refresh')
-        break
-      case 'view_history':
-        await sendTransactionHistory(userId, replyToken)
-        break
-      case 'account_linking':
-        await sendAccountLinkingLink(replyToken)
-        break
-      case 'check_balance':
-        await handleBalanceInquiry(userId, replyToken)
-        break
-      case 'contact_support':
-        await sendSupportInfo(replyToken)
-        break
-      case 'promotions':
-        await sendPromotions(replyToken)
-        break
-      default:
-        console.log(`ℹ️ Unhandled postback action: ${action}`)
+    // Default response
+    replyMessage = {
+      type: 'text',
+      text: '🤖 สวัสดีครับ! ผมเป็น Prima789 Member Card Bot\n\nพิมพ์ "ช่วยเหลือ" เพื่อดูคำสั่งที่ใช้ได้\nหรือใช้เมนูด้านล่างเลย!',
     }
-  } catch (error) {
-    console.error('❌ Error handling postback:', error)
-    await sendErrorMessage(replyToken)
   }
+
+  if (replyMessage) {
+    await sendReplyMessage(event.replyToken, replyMessage)
+    return replyMessage
+  }
+
+  return null
 }
 
-// Handle follow events
-async function handleFollow(event) {
-  const { replyToken, source } = event
-  const userId = source.userId
+// Handle postback events (from Rich Menu or buttons)
+async function handlePostback(event) {
+  const userId = event.source.userId
+  const postbackData = event.postback.data
 
+  console.log(`🔘 Postback from ${userId}: ${postbackData}`)
+
+  const params = new URLSearchParams(postbackData)
+  const action = params.get('action')
+
+  let replyMessage = null
+
+  switch (action) {
+    case 'check_balance':
+      replyMessage = await handleBalanceCommand(userId)
+      break
+    case 'transaction_history':
+      const limit = parseInt(params.get('limit')) || 5
+      replyMessage = await handleHistoryCommand(userId, limit)
+      break
+    case 'open_member_card':
+      replyMessage = await handleMemberCardCommand(userId)
+      break
+    case 'account_linking':
+      replyMessage = await handleLinkCommand(userId)
+      break
+    case 'help':
+      replyMessage = getHelpMessage()
+      break
+    case 'refresh_data':
+      replyMessage = await handleRefreshCommand(userId)
+      break
+    default:
+      replyMessage = {
+        type: 'text',
+        text: '🤖 ขออภัยครับ ไม่เข้าใจคำสั่งนี้\nพิมพ์ "ช่วยเหลือ" เพื่อดูคำสั่งที่ใช้ได้',
+      }
+  }
+
+  if (replyMessage) {
+    await sendReplyMessage(event.replyToken, replyMessage)
+    return replyMessage
+  }
+
+  return null
+}
+
+// Handle follow event (user adds bot as friend)
+async function handleFollow(event) {
+  const userId = event.source.userId
   console.log(`👋 New follower: ${userId}`)
 
-  // Send welcome message
-  await sendWelcomeMessage(replyToken)
+  // Get and sync user profile
+  const userProfile = await getLineUserProfile(userId)
+  if (userProfile) {
+    await upsertLineUser(userProfile)
 
-  // Log follow event
-  await logUserActivity(userId, 'follow', {
-    source: 'line_bot',
-    timestamp: new Date().toISOString(),
-  })
+    await logSystemEvent(
+      'INFO',
+      'webhook-follow',
+      `New follower: ${userProfile.displayName}`,
+      { user_profile: userProfile },
+      userId
+    )
+  }
+
+  const welcomeMessage = await getWelcomeMessage(userId)
+  await sendReplyMessage(event.replyToken, welcomeMessage)
+
+  return welcomeMessage
 }
 
-// Handle unfollow events
+// Handle unfollow event
 async function handleUnfollow(event) {
-  const { source } = event
-  const userId = source.userId
-
+  const userId = event.source.userId
   console.log(`👋 User unfollowed: ${userId}`)
 
-  // Log unfollow event
-  await logUserActivity(userId, 'unfollow', {
-    source: 'line_bot',
-    timestamp: new Date().toISOString(),
-  })
+  await logSystemEvent(
+    'INFO',
+    'webhook-unfollow',
+    `User unfollowed: ${userId}`,
+    { user_id: userId },
+    userId
+  )
+
+  return null
 }
 
-// Send welcome message
-async function sendWelcomeMessage(replyToken) {
-  const message = {
-    type: 'flex',
-    altText: '🎉 ยินดีต้อนรับสู่ Prima789!',
-    contents: {
-      type: 'bubble',
-      header: {
-        type: 'box',
-        layout: 'vertical',
-        backgroundColor: '#06C755',
-        paddingAll: '20px',
-        contents: [
-          {
-            type: 'text',
-            text: '🎉 ยินดีต้อนรับ!',
-            color: '#ffffff',
-            size: 'xl',
-            weight: 'bold',
-            align: 'center',
-          },
-          {
-            type: 'text',
-            text: 'สู่ Prima789 LINE Official Account',
-            color: '#ffffff',
-            size: 'sm',
-            align: 'center',
-            margin: 'sm',
-          },
-        ],
-      },
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'md',
-        paddingAll: '20px',
-        contents: [
-          {
-            type: 'text',
-            text: '🚀 เริ่มต้นใช้งาน',
-            weight: 'bold',
-            size: 'lg',
-            margin: 'sm',
-          },
-          {
-            type: 'text',
-            text: 'เพื่อใช้งาน Member Card และรับการแจ้งเตือน กรุณาเชื่อมโยงบัญชี Prima789 ของคุณก่อน',
-            size: 'sm',
-            color: '#666666',
-            wrap: true,
-          },
-          {
-            type: 'separator',
-            margin: 'lg',
-          },
-          {
-            type: 'text',
-            text: '✨ สิทธิประโยชน์ที่คุณจะได้รับ:',
-            weight: 'bold',
-            margin: 'lg',
-          },
-          {
-            type: 'text',
-            text: '• 💳 Member Card แบบ Digital\n• 🔔 แจ้งเตือนธุรกรรมแบบ Real-time\n• 📊 ตรวจสอบยอดเงินผ่าน LINE\n• 🎁 รับโปรโมชั่นพิเศษ',
-            size: 'sm',
-            color: '#666666',
-            wrap: true,
-          },
-        ],
-      },
-      footer: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'sm',
-        paddingAll: '20px',
-        contents: [
-          {
-            type: 'button',
-            style: 'primary',
-            action: {
-              type: 'postback',
-              label: '🔗 เชื่อมโยงบัญชี',
-              data: 'action=account_linking',
-            },
-          },
-          {
-            type: 'button',
-            style: 'secondary',
-            action: {
-              type: 'postback',
-              label: '❓ ช่วยเหลือ',
-              data: 'action=help',
-            },
-          },
-        ],
-      },
-    },
+// Handle join event (bot added to group/room)
+async function handleJoin(event) {
+  console.log('🎉 Bot added to group/room')
+
+  const groupWelcomeMessage = {
+    type: 'text',
+    text: '🎰 สวัสดีครับ! ผมเป็น Prima789 Member Card Bot\n\nใช้คำสั่งหรือเมนูเพื่อจัดการบัตรสมาชิกของคุณ\nพิมพ์ "ช่วยเหลือ" เพื่อดูคำสั่งทั้งหมด',
   }
 
-  await replyMessage(replyToken, [message])
+  await sendReplyMessage(event.replyToken, groupWelcomeMessage)
+  return groupWelcomeMessage
 }
 
-// Send help message
-async function sendHelpMessage(replyToken) {
-  const message = {
-    type: 'flex',
-    altText: '❓ วิธีใช้งาน Prima789 LINE Bot',
-    contents: {
-      type: 'bubble',
-      header: {
-        type: 'box',
-        layout: 'vertical',
-        backgroundColor: '#1a1a2e',
-        paddingAll: '20px',
-        contents: [
-          {
-            type: 'text',
-            text: '❓ วิธีใช้งาน',
-            color: '#ffffff',
-            size: 'xl',
-            weight: 'bold',
-            align: 'center',
-          },
-        ],
-      },
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'md',
-        paddingAll: '20px',
-        contents: [
-          {
-            type: 'text',
-            text: '📱 คำสั่งที่ใช้ได้',
-            weight: 'bold',
-            size: 'lg',
-          },
-          {
-            type: 'text',
-            text: '• พิมพ์ "ยอดเงิน" หรือ "balance" - ดูยอดเงินคงเหลือ\n• พิมพ์ "การ์ด" หรือ "card" - เปิด Member Card\n• พิมพ์ "เชื่อม" หรือ "link" - เชื่อมโยงบัญชี\n• พิมพ์ "ช่วย" หรือ "help" - ดูวิธีใช้งาน',
-            size: 'sm',
-            color: '#666666',
-            wrap: true,
-          },
-          {
-            type: 'separator',
-            margin: 'lg',
-          },
-          {
-            type: 'text',
-            text: '🎯 เมนูด่วน',
-            weight: 'bold',
-            margin: 'lg',
-          },
-          {
-            type: 'text',
-            text: 'ใช้เมนูด้านล่างหน้าจอเพื่อเข้าถึงฟังก์ชันต่างๆ ได้อย่างรวดเร็ว',
-            size: 'sm',
-            color: '#666666',
-            wrap: true,
-          },
-        ],
-      },
-      footer: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'sm',
-        paddingAll: '20px',
-        contents: [
-          {
-            type: 'button',
-            style: 'primary',
-            action: {
-              type: 'postback',
-              label: '💳 เปิด Member Card',
-              data: 'action=open_member_card',
-            },
-          },
-        ],
-      },
-    },
+// Handle account link event
+async function handleAccountLink(event) {
+  const userId = event.source.userId
+  const linkToken = event.link.linkToken
+
+  console.log(`🔗 Account link event from ${userId}, token: ${linkToken}`)
+
+  // This would be used for LINE Login integration
+  // For now, we'll just send a message
+  const linkMessage = {
+    type: 'text',
+    text: '🔗 Account linking detected!\nPlease use the Member Card menu to complete linking with Prima789.',
   }
 
-  await replyMessage(replyToken, [message])
+  await sendReplyMessage(event.replyToken, linkMessage)
+  return linkMessage
 }
 
-// Handle balance inquiry
-async function handleBalanceInquiry(
-  userId,
-  replyToken,
-  requestType = 'balance'
-) {
-  try {
-    console.log(`💰 Balance inquiry from ${userId}, type: ${requestType}`)
+// Command handlers
+async function handleMemberCardCommand(userId) {
+  const linkingInfo = await checkUserLinking(userId)
 
-    // Check if account is linked
-    const linkStatus = await checkAccountLinking(userId)
-
-    if (!linkStatus.isLinked) {
-      await sendNotLinkedMessage(replyToken)
-      return
+  if (!linkingInfo || !linkingInfo.is_linked) {
+    return {
+      type: 'template',
+      altText: 'เชื่อมโยงบัญชี Prima789',
+      template: {
+        type: 'buttons',
+        text: '💳 Member Card\n\nบัญชีของคุณยังไม่ได้เชื่อมโยงกับ Prima789\nกรุณาเชื่อมโยงบัญชีก่อนใช้งาน',
+        actions: [
+          {
+            type: 'uri',
+            label: '🔗 เชื่อมโยงบัญชี',
+            uri: `${process.env.NETLIFY_URL}/liff-account-linking.html`,
+          },
+          {
+            type: 'uri',
+            label: '🌐 สมัครสมาชิก',
+            uri: 'https://prima789.com/register',
+          },
+        ],
+      },
     }
+  }
 
-    // Request balance inquiry
+  return {
+    type: 'template',
+    altText: 'Prima789 Member Card',
+    template: {
+      type: 'buttons',
+      text: `💳 Member Card\n\nสวัสดี ${linkingInfo.display_name}\nบัญชี: ${
+        linkingInfo.prima789_username
+      }\nยอดเงิน: ฿${parseFloat(linkingInfo.balance || 0).toLocaleString()}`,
+      actions: [
+        {
+          type: 'uri',
+          label: '📱 เปิด Member Card',
+          uri: `${process.env.NETLIFY_URL}/liff-member-card.html`,
+        },
+        {
+          type: 'postback',
+          label: '🔄 รีเฟรชยอดเงิน',
+          data: 'action=refresh_data',
+        },
+      ],
+    },
+  }
+}
+
+async function handleBalanceCommand(userId) {
+  const linkingInfo = await checkUserLinking(userId)
+
+  if (!linkingInfo || !linkingInfo.is_linked) {
+    return {
+      type: 'text',
+      text: '❌ บัญชียังไม่ได้เชื่อมโยง\nกรุณาเชื่อมโยงบัญชี Prima789 ก่อนตรวจสอบยอดเงิน\n\nใช้เมนู "เชื่อมโยงบัญชี" เพื่อเริ่มต้น',
+    }
+  }
+
+  const account = await getPrima789Account(linkingInfo.prima789_username)
+
+  if (!account) {
+    return {
+      type: 'text',
+      text: '❌ ไม่พบข้อมูลบัญชี Prima789\nกรุณาลองใหม่อีกครั้ง หรือติดต่อฝ่ายสนับสนุน',
+    }
+  }
+
+  const balance = parseFloat(account.available) || 0
+  const creditLimit = parseFloat(account.credit_limit) || 0
+  const points = parseInt(account.points) || 0
+
+  return {
+    type: 'template',
+    altText: `💰 ยอดเงินคงเหลือ: ฿${balance.toLocaleString()}`,
+    template: {
+      type: 'buttons',
+      text:
+        `💰 ยอดเงินคงเหลือ\n\n` +
+        `🏦 ยอดเงิน: ฿${balance.toLocaleString()}\n` +
+        `💳 วงเงินเครดิต: ฿${creditLimit.toLocaleString()}\n` +
+        `⭐ คะแนนสะสม: ${points.toLocaleString()} แต้ม\n` +
+        `🏅 ระดับสมาชิก: ${account.tier}`,
+      actions: [
+        {
+          type: 'uri',
+          label: '📱 เปิด Member Card',
+          uri: `${process.env.NETLIFY_URL}/liff-member-card.html`,
+        },
+        {
+          type: 'postback',
+          label: '📊 ดูประวัติธุรกรรม',
+          data: 'action=transaction_history&limit=5',
+        },
+      ],
+    },
+  }
+}
+
+async function handleHistoryCommand(userId, limit = 5) {
+  const linkingInfo = await checkUserLinking(userId)
+
+  if (!linkingInfo || !linkingInfo.is_linked) {
+    return {
+      type: 'text',
+      text: '❌ บัญชียังไม่ได้เชื่อมโยง\nกรุณาเชื่อมโยงบัญชี Prima789 ก่อนดูประวัติ',
+    }
+  }
+
+  const transactions = await getUserTransactions(userId, limit)
+
+  if (transactions.length === 0) {
+    return {
+      type: 'text',
+      text: '📊 ประวัติธุรกรรม\n\nยังไม่มีธุรกรรมในระบบ\nเมื่อมีการทำธุรกรรมใน Prima789 จะแสดงที่นี่',
+    }
+  }
+
+  let historyText = '📊 ประวัติธุรกรรม (5 รายการล่าสุด)\n\n'
+
+  for (const tx of transactions) {
+    const date = new Date(tx.created_at).toLocaleDateString('th-TH', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+
+    const icon = getTransactionIcon(tx.transaction_type)
+    const amount = Math.abs(parseFloat(tx.amount) || 0)
+    const sign = ['withdraw', 'bet'].includes(tx.transaction_type) ? '-' : '+'
+
+    historyText += `${icon} ${getTransactionName(tx.transaction_type)}\n`
+    historyText += `   ${sign}฿${amount.toLocaleString()} | ${date}\n\n`
+  }
+
+  return {
+    type: 'template',
+    altText: historyText,
+    template: {
+      type: 'buttons',
+      text:
+        historyText.substring(0, 400) + (historyText.length > 400 ? '...' : ''),
+      actions: [
+        {
+          type: 'uri',
+          label: '📱 ดูรายละเอียดเพิ่มเติม',
+          uri: `${process.env.NETLIFY_URL}/liff-member-card.html`,
+        },
+        {
+          type: 'postback',
+          label: '💰 เช็คยอดเงิน',
+          data: 'action=check_balance',
+        },
+      ],
+    },
+  }
+}
+
+async function handleLinkCommand(userId) {
+  return {
+    type: 'template',
+    altText: 'เชื่อมโยงบัญชี Prima789',
+    template: {
+      type: 'buttons',
+      text: '🔗 เชื่อมโยงบัญชี Prima789\n\nเชื่อมโยงบัญชี Prima789 เพื่อใช้งาน Member Card และรับแจ้งเตือนธุรกรรมแบบ Real-time',
+      actions: [
+        {
+          type: 'uri',
+          label: '🔗 เชื่อมโยงบัญชี',
+          uri: `${process.env.NETLIFY_URL}/liff-account-linking.html`,
+        },
+        {
+          type: 'uri',
+          label: '🌐 สมัครสมาชิก',
+          uri: 'https://prima789.com/register',
+        },
+      ],
+    },
+  }
+}
+
+async function handleRefreshCommand(userId) {
+  const linkingInfo = await checkUserLinking(userId)
+
+  if (!linkingInfo || !linkingInfo.is_linked) {
+    return {
+      type: 'text',
+      text: '❌ บัญชียังไม่ได้เชื่อมโยง\nไม่สามารถรีเฟรชข้อมูลได้',
+    }
+  }
+
+  return {
+    type: 'text',
+    text: '🔄 กำลังรีเฟรชข้อมูล...\n\nใช้ Member Card เพื่อดูข้อมูลล่าสุด\nหรือเข้าสู่ระบบ Prima789.com เพื่ออัปเดตข้อมูลแบบ Real-time',
+  }
+}
+
+// Helper functions
+function getHelpMessage() {
+  return {
+    type: 'text',
+    text:
+      '🤖 คำสั่งที่ใช้ได้:\n\n' +
+      '💳 "บัตรสมาชิก" - เปิด Member Card\n' +
+      '💰 "ยอดเงิน" - เช็คยอดเงินคงเหลือ\n' +
+      '📊 "ประวัติ" - ดูประวัติธุรกรรม\n' +
+      '🔗 "เชื่อมโยง" - เชื่อมโยงบัญชี Prima789\n' +
+      '🔄 "รีเฟรช" - อัปเดตข้อมูลล่าสุด\n' +
+      '❓ "ช่วยเหลือ" - แสดงคำสั่งนี้\n\n' +
+      '📱 หรือใช้เมนูด้านล่างได้เลย!',
+  }
+}
+
+async function getWelcomeMessage(userId) {
+  const linkingInfo = await checkUserLinking(userId)
+
+  if (linkingInfo && linkingInfo.is_linked) {
+    return {
+      type: 'template',
+      altText: 'ยินดีต้อนรับสู่ Prima789 Member Card',
+      template: {
+        type: 'buttons',
+        text: `🎰 ยินดีต้อนรับสู่ Prima789\n\nสวัสดี ${
+          linkingInfo.display_name
+        }!\nบัญชีของคุณเชื่อมโยงแล้ว\n\nยอดเงิน: ฿${parseFloat(
+          linkingInfo.balance || 0
+        ).toLocaleString()}`,
+        actions: [
+          {
+            type: 'uri',
+            label: '📱 เปิด Member Card',
+            uri: `${process.env.NETLIFY_URL}/liff-member-card.html`,
+          },
+          {
+            type: 'postback',
+            label: '💰 เช็คยอดเงิน',
+            data: 'action=check_balance',
+          },
+        ],
+      },
+    }
+  } else {
+    return {
+      type: 'template',
+      altText: 'ยินดีต้อนรับสู่ Prima789 Member Card',
+      template: {
+        type: 'buttons',
+        text: '🎰 ยินดีต้อนรับสู่ Prima789\n\nผมเป็น Member Card Bot ที่จะช่วยให้คุณจัดการบัญชี Prima789 ผ่าน LINE ได้สะดวก\n\nเริ่มต้นด้วยการเชื่อมโยงบัญชีกันเลย!',
+        actions: [
+          {
+            type: 'uri',
+            label: '🔗 เชื่อมโยงบัญชี',
+            uri: `${process.env.NETLIFY_URL}/liff-account-linking.html`,
+          },
+          {
+            type: 'postback',
+            label: '❓ ช่วยเหลือ',
+            data: 'action=help',
+          },
+        ],
+      },
+    }
+  }
+}
+
+function getTransactionIcon(type) {
+  const icons = {
+    deposit: '💰',
+    withdraw: '💸',
+    bet: '🎲',
+    win: '🏆',
+    bonus: '🎁',
+    data_sync: '🔄',
+    account_link: '🔗',
+    user_login: '🔐',
+  }
+  return icons[type] || '📄'
+}
+
+function getTransactionName(type) {
+  const names = {
+    deposit: 'ฝากเงิน',
+    withdraw: 'ถอนเงิน',
+    bet: 'วางเดิมพัน',
+    win: 'ชนะเดิมพัน',
+    bonus: 'โบนัส',
+    data_sync: 'ซิงค์ข้อมูล',
+    account_link: 'เชื่อมโยงบัญชี',
+    user_login: 'เข้าสู่ระบบ',
+  }
+  return names[type] || type
+}
+
+// Get LINE user profile
+async function getLineUserProfile(userId) {
+  if (!LINE_CHANNEL_ACCESS_TOKEN) {
+    console.log('LINE Channel Access Token not configured')
+    return null
+  }
+
+  try {
     const response = await fetch(
-      `${process.env.NETLIFY_URL}/.netlify/functions/balance-inquiry`,
+      `https://api.line.me/v2/bot/profile/${userId}`,
       {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          lineUserId: userId,
-          requestType: requestType,
-        }),
+        headers: {
+          Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`,
+        },
       }
     )
 
-    const result = await response.json()
-
-    if (result.success) {
-      // Balance card will be sent by balance-inquiry function
-      const confirmMessage =
-        requestType === 'refresh'
-          ? 'อัปเดตข้อมูลสำเร็จแล้ว'
-          : 'ส่งข้อมูลยอดเงินให้คุณแล้ว'
-
-      await replyMessage(replyToken, [
-        {
-          type: 'text',
-          text: `✅ ${confirmMessage}\n\nข้อมูลล่าสุด:\n💰 ยอดเงิน: ฿${(
-            result.data?.balance || 0
-          ).toLocaleString()}\n🎯 คะแนน: ${(
-            result.data?.points || 0
-          ).toLocaleString()} pts`,
-        },
-      ])
-    } else {
-      await sendErrorMessage(replyToken)
+    if (!response.ok) {
+      throw new Error(`LINE API error: ${response.status}`)
     }
+
+    return await response.json()
   } catch (error) {
-    console.error('Balance inquiry error:', error)
-    await sendErrorMessage(replyToken)
+    console.error('Error getting LINE user profile:', error)
+    return null
   }
 }
 
-// Send account linking info
-async function sendAccountLinkingInfo(replyToken) {
-  const message = {
-    type: 'flex',
-    altText: '🔗 การเชื่อมโยงบัญชี',
-    contents: {
-      type: 'bubble',
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'md',
-        paddingAll: '20px',
-        contents: [
-          {
-            type: 'text',
-            text: '🔗 เชื่อมโยงบัญชี Prima789',
-            weight: 'bold',
-            size: 'lg',
-          },
-          {
-            type: 'text',
-            text: 'เชื่อมโยงบัญชี Prima789 ของคุณเพื่อใช้งาน Member Card และรับการแจ้งเตือนผ่าน LINE',
-            size: 'sm',
-            color: '#666666',
-            wrap: true,
-          },
-          {
-            type: 'separator',
-            margin: 'lg',
-          },
-          {
-            type: 'text',
-            text: '📋 วิธีการเชื่อมโยง:',
-            weight: 'bold',
-            margin: 'lg',
-          },
-          {
-            type: 'text',
-            text: '1. กดปุ่ม "เชื่อมโยงบัญชี" ด้านล่าง\n2. เลือกวิธีการเชื่อมโยง\n3. ทำตามขั้นตอนในหน้าต่าง\n4. รอการยืนยันจากระบบ',
-            size: 'sm',
-            color: '#666666',
-            wrap: true,
-          },
-        ],
-      },
-      footer: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'sm',
-        paddingAll: '20px',
-        contents: [
-          {
-            type: 'button',
-            style: 'primary',
-            action: {
-              type: 'postback',
-              label: '🔗 เชื่อมโยงบัญชี',
-              data: 'action=account_linking',
-            },
-          },
-        ],
-      },
-    },
-  }
-
-  await replyMessage(replyToken, [message])
-}
-
-// Send account linking link
-async function sendAccountLinkingLink(replyToken) {
-  const liffUrl = `${process.env.NETLIFY_URL}/liff-account-linking.html`
-
-  const message = {
-    type: 'template',
-    altText: '🔗 เชื่อมโยงบัญชี Prima789',
-    template: {
-      type: 'buttons',
-      title: '🔗 เชื่อมโยงบัญชี',
-      text: 'กดปุ่มด้านล่างเพื่อเริ่มเชื่อมโยงบัญชี Prima789',
-      actions: [
-        {
-          type: 'uri',
-          label: 'เริ่มเชื่อมโยง',
-          uri: liffUrl,
-        },
-      ],
-    },
-  }
-
-  await replyMessage(replyToken, [message])
-}
-
-// Send member card link
-async function sendMemberCardLink(replyToken) {
-  const liffUrl = `${process.env.NETLIFY_URL}/liff-member-card.html`
-
-  const message = {
-    type: 'template',
-    altText: '💳 Prima789 Member Card',
-    template: {
-      type: 'buttons',
-      title: '💳 Member Card',
-      text: 'เปิด Member Card เพื่อดูข้อมูลบัญชีและธุรกรรม',
-      actions: [
-        {
-          type: 'uri',
-          label: 'เปิด Member Card',
-          uri: liffUrl,
-        },
-      ],
-    },
-  }
-
-  await replyMessage(replyToken, [message])
-}
-
-// Send not linked message
-async function sendNotLinkedMessage(replyToken) {
-  const message = {
-    type: 'flex',
-    altText: '❌ บัญชียังไม่ได้เชื่อมโยง',
-    contents: {
-      type: 'bubble',
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'md',
-        paddingAll: '20px',
-        contents: [
-          {
-            type: 'text',
-            text: '❌ บัญชียังไม่ได้เชื่อมโยง',
-            weight: 'bold',
-            size: 'lg',
-            color: '#ff6b6b',
-          },
-          {
-            type: 'text',
-            text: 'กรุณาเชื่อมโยงบัญชี Prima789 ของคุณก่อนใช้งานฟีเจอร์นี้',
-            wrap: true,
-            color: '#666666',
-          },
-        ],
-      },
-      footer: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'sm',
-        paddingAll: '20px',
-        contents: [
-          {
-            type: 'button',
-            style: 'primary',
-            action: {
-              type: 'postback',
-              label: '🔗 เชื่อมโยงบัญชี',
-              data: 'action=account_linking',
-            },
-          },
-        ],
-      },
-    },
-  }
-
-  await replyMessage(replyToken, [message])
-}
-
-// Send error message
-async function sendErrorMessage(replyToken) {
-  const message = {
-    type: 'text',
-    text: '❌ เกิดข้อผิดพลาด\n\nกรุณาลองใหม่อีกครั้ง หรือติดต่อเจ้าหน้าที่',
-  }
-  await replyMessage(replyToken, [message])
-}
-
-// Send greeting based on account status
-async function sendGreeting(replyToken, linkStatus) {
-  if (linkStatus.isLinked) {
-    const userData = linkStatus.data
-    const message = {
-      type: 'flex',
-      altText: `สวัสดี ${userData.display_name || userData.username}!`,
-      contents: {
-        type: 'bubble',
-        body: {
-          type: 'box',
-          layout: 'vertical',
-          spacing: 'md',
-          paddingAll: '20px',
-          contents: [
-            {
-              type: 'text',
-              text: `👋 สวัสดี ${userData.display_name || userData.username}!`,
-              weight: 'bold',
-              size: 'lg',
-            },
-            {
-              type: 'text',
-              text: `💰 ยอดเงินคงเหลือ: ฿${(
-                userData.balance || 0
-              ).toLocaleString()}\n🎯 คะแนนสะสม: ${(
-                userData.points || 0
-              ).toLocaleString()} pts\n👑 ระดับ: ${userData.tier || 'Bronze'}`,
-              size: 'sm',
-              color: '#666666',
-            },
-          ],
-        },
-        footer: {
-          type: 'box',
-          layout: 'horizontal',
-          spacing: 'sm',
-          paddingAll: '20px',
-          contents: [
-            {
-              type: 'button',
-              style: 'primary',
-              action: {
-                type: 'postback',
-                label: '💳 Member Card',
-                data: 'action=open_member_card',
-              },
-              flex: 1,
-            },
-            {
-              type: 'button',
-              style: 'secondary',
-              action: {
-                type: 'postback',
-                label: '🔄 อัปเดต',
-                data: 'action=refresh_balance',
-              },
-              flex: 1,
-            },
-          ],
-        },
-      },
-    }
-    await replyMessage(replyToken, [message])
-  } else {
-    await sendAccountLinkingInfo(replyToken)
-  }
-}
-
-// Send transaction history
-async function sendTransactionHistory(userId, replyToken) {
-  try {
-    const linkStatus = await checkAccountLinking(userId)
-
-    if (!linkStatus.isLinked) {
-      await sendNotLinkedMessage(replyToken)
-      return
-    }
-
-    const transactions = linkStatus.data.recent_transactions || []
-
-    if (transactions.length === 0) {
-      await replyMessage(replyToken, [
-        {
-          type: 'text',
-          text: '📊 ยังไม่มีประวัติธุรกรรม',
-        },
-      ])
-      return
-    }
-
-    const transactionText = transactions
-      .slice(0, 5)
-      .map((tx, index) => {
-        const amount = parseFloat(tx.amount) || 0
-        const date = new Date(tx.timestamp || tx.created_at).toLocaleDateString(
-          'th-TH'
-        )
-        const type = getTransactionTypeText(tx.transaction_type)
-        const amountText =
-          amount >= 0
-            ? `+฿${amount.toLocaleString()}`
-            : `-฿${Math.abs(amount).toLocaleString()}`
-
-        return `${index + 1}. ${type}\n   ${date} | ${amountText}`
-      })
-      .join('\n\n')
-
-    const message = {
-      type: 'text',
-      text: `📊 ประวัติธุรกรรม 5 รายการล่าสุด\n\n${transactionText}\n\n💡 เปิด Member Card เพื่อดูรายละเอียดเพิ่มเติม`,
-    }
-
-    await replyMessage(replyToken, [message])
-  } catch (error) {
-    console.error('Transaction history error:', error)
-    await sendErrorMessage(replyToken)
-  }
-}
-
-// Send support info
-async function sendSupportInfo(replyToken) {
-  const message = {
-    type: 'flex',
-    altText: '📞 ติดต่อเจ้าหน้าที่',
-    contents: {
-      type: 'bubble',
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'md',
-        paddingAll: '20px',
-        contents: [
-          {
-            type: 'text',
-            text: '📞 ติดต่อเจ้าหน้าที่',
-            weight: 'bold',
-            size: 'lg',
-          },
-          {
-            type: 'text',
-            text: '🕐 เวลาทำการ: 24 ชั่วโมง ทุกวัน\n📧 อีเมล: support@prima789.com\n📱 LINE: @prima789support',
-            size: 'sm',
-            color: '#666666',
-            wrap: true,
-          },
-        ],
-      },
-      footer: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'sm',
-        paddingAll: '20px',
-        contents: [
-          {
-            type: 'button',
-            style: 'primary',
-            action: {
-              type: 'uri',
-              label: '💬 แชทกับเจ้าหน้าที่',
-              uri: 'https://prima789.com/support',
-            },
-          },
-        ],
-      },
-    },
-  }
-
-  await replyMessage(replyToken, [message])
-}
-
-// Send promotions
-async function sendPromotions(replyToken) {
-  const message = {
-    type: 'text',
-    text: '🎁 โปรโมชั่นพิเศษ\n\nติดตามโปรโมชั่นล่าสุดได้ที่ Prima789.com\nหรือตรวจสอบผ่าน Member Card ของคุณ',
-  }
-
-  await replyMessage(replyToken, [message])
-}
-
-// Utility functions
-function parsePostbackData(data) {
-  const params = {}
-  data.split('&').forEach((param) => {
-    const [key, value] = param.split('=')
-    params[key] = value
-  })
-  return params
-}
-
-function getTransactionTypeText(type) {
-  switch (type) {
-    case 'deposit':
-      return '💰 ฝากเงิน'
-    case 'withdraw':
-      return '💸 ถอนเงิน'
-    case 'bet':
-      return '🎲 วางเดิมพัน'
-    case 'win':
-      return '🏆 ชนะเดิมพัน'
-    case 'bonus':
-      return '🎁 โบนัส'
-    default:
-      return '📄 ธุรกรรม'
-  }
-}
-
-// Reply message to LINE
-async function replyMessage(replyToken, messages) {
-  if (!LINE_CHANNEL_ACCESS_TOKEN || !replyToken) {
-    console.error('❌ Missing LINE_CHANNEL_ACCESS_TOKEN or replyToken')
-    return false
+// Send reply message
+async function sendReplyMessage(replyToken, message) {
+  if (!LINE_CHANNEL_ACCESS_TOKEN) {
+    console.log('LINE Channel Access Token not configured')
+    return
   }
 
   try {
     const response = await fetch('https://api.line.me/v2/bot/message/reply', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
         Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`,
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        replyToken,
-        messages,
+        replyToken: replyToken,
+        messages: [message],
       }),
     })
 
     if (!response.ok) {
-      const error = await response.text()
-      console.error('❌ LINE API error:', error)
-      return false
+      throw new Error(`LINE API error: ${response.status}`)
     }
 
-    console.log('✅ Message sent successfully')
-    return true
+    console.log('✅ Reply message sent successfully')
   } catch (error) {
-    console.error('❌ Reply message error:', error)
-    return false
-  }
-}
-
-// Check account linking status
-async function checkAccountLinking(userId) {
-  try {
-    const response = await fetch(
-      `${process.env.NETLIFY_URL}/.netlify/functions/check-account-linking?lineUserId=${userId}`
-    )
-    const data = await response.json()
-    return data
-  } catch (error) {
-    console.error('Check linking error:', error)
-    return { success: false, isLinked: false }
-  }
-}
-
-// Log user activity
-async function logUserActivity(userId, activityType, activityData) {
-  try {
-    const pool = new Pool({
-      connectionString: process.env.NETLIFY_DATABASE_URL,
-      ssl: { rejectUnauthorized: false },
-    })
-
-    const client = await pool.connect()
-
-    await client.query(
-      `
-            INSERT INTO user_activities (
-                line_user_id, activity_type, activity_data, created_at
-            ) VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-        `,
-      [userId, activityType, JSON.stringify(activityData)]
-    )
-
-    client.release()
-    await pool.end()
-  } catch (error) {
-    console.error('Error logging user activity:', error)
+    console.error('Error sending reply message:', error)
   }
 }
